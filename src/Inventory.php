@@ -42,9 +42,13 @@ class Inventory {
 			}
 		}
 
+		$self       = basename( untrailingslashit( KCVE_DIR ) );
 		$components = [];
 		foreach ( $plugins as $file => $data ) {
-			$slug  = self::pluginSlug( $file );
+			$slug = self::pluginSlug( $file );
+			if ( $slug === $self ) {
+				continue; // Klykk CVE finns inte i databasen och skulle bara bli brus under "okända".
+			}
 			$notes = [ is_plugin_active( $file ) ? 'aktivt' : 'inaktivt' ];
 			if ( isset( $required_by[ $slug ] ) ) {
 				$notes[] = 'krävs av ' . implode( ', ', $required_by[ $slug ] );

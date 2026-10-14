@@ -4,7 +4,7 @@ namespace KCve;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Inställningssida under Verktyg → k-cve.
+ * Inställningssida under Verktyg → Klykk CVE.
  */
 class Admin {
 	private const PAGE = 'k-cve';
@@ -16,7 +16,7 @@ class Admin {
 	}
 
 	public static function menu(): void {
-		add_management_page( 'k-cve sårbarhetsbevakning', 'k-cve', 'manage_options', self::PAGE, [ self::class, 'render' ] );
+		add_management_page( 'Klykk CVE Sårbarhetsbevakning', 'Klykk CVE', 'manage_options', self::PAGE, [ self::class, 'render' ] );
 	}
 
 	public static function settings(): void {
@@ -67,7 +67,7 @@ class Admin {
 		];
 		?>
 		<div class="wrap">
-			<h1>k-cve sårbarhetsbevakning</h1>
+			<h1>Klykk CVE Sårbarhetsbevakning</h1>
 			<?php if ( isset( $messages[ $status ] ) ) : ?>
 				<div class="notice notice-<?php echo esc_attr( $messages[ $status ][0] ); ?> is-dismissible"><p><?php echo esc_html( $messages[ $status ][1] ); ?></p></div>
 			<?php endif; ?>

@@ -33,9 +33,16 @@ class MailerTest extends TestCase {
 		$this->assertStringContainsString( '&lt;script&gt;', $html );
 	}
 
+	public function test_components_are_collapsible_with_type_tag(): void {
+		$html = Mailer::render( $this->report() );
+		$this->assertSame( 1, substr_count( $html, '<details' ), 'En accordion per sårbar komponent' );
+		$this->assertMatchesRegularExpression( '#<summary[^>]*>.*>Plugin</span>.*WPForms Lite &lt;script&gt; 1\.9\.7\.3.*sårbarheter.*Uppdatera till <strong>2\.0\.3</strong>.*</summary>#s', $html );
+		$this->assertStringContainsString( '>Tema</span>', $html, 'Typtagg även i uppdateringstabellen' );
+	}
+
 	public function test_subject(): void {
 		$subject = Mailer::subject( $this->report() );
-		$this->assertStringStartsWith( '[k-cve] Kund AB: 1 sårbara komponenter', $subject );
+		$this->assertStringStartsWith( '[Klykk CVE] Kund AB: 1 sårbara komponenter', $subject );
 		$this->assertStringEndsWith( ', 1 övriga uppdateringar', $subject );
 	}
 
@@ -63,7 +70,7 @@ class MailerTest extends TestCase {
 
 	public function test_clean_report(): void {
 		$report = Report::build( [ 'name' => 'Ren', 'url' => 'u' ], [], [], [], 1 );
-		$this->assertSame( '[k-cve] Ren: inga kända sårbarheter', Mailer::subject( $report ) );
+		$this->assertSame( '[Klykk CVE] Ren: inga kända sårbarheter', Mailer::subject( $report ) );
 		$this->assertStringContainsString( 'Inga kända sårbarheter hittades.', Mailer::render( $report ) );
 	}
 }

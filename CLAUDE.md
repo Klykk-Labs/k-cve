@@ -4,7 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Vad det här är
 
-WordPress-plugin (`k-cve`, PHP ≥ 7.4, WP ≥ 6.5, inga byggsteg) som installeras på Roberts kundsiter.
+WordPress-plugin "Klykk CVE Sårbarhetsbevakning" (kort: "Klykk CVE"; teknisk slug `k-cve`, PHP ≥ 7.4, WP ≥ 6.5) som installeras på kundsiter.
+Repot är **publikt** (github.com/Klykk-Labs/k-cve): skriv inga kundnamn, interna sökvägar eller hemligheter här eller i koden.
 Det kontrollerar regelbundet core, plugins, teman, servermjukvara och inbäddade Composer-paket mot kända
 sårbarheter och mejlar en CVSS-graderad rapport med CVE-länkar. Se README.md för funktion och begränsningar.
 UI- och mejltexter är på svenska och hårdkodade (ingen i18n).
@@ -12,10 +13,11 @@ UI- och mejltexter är på svenska och hårdkodade (ingen i18n).
 ## Kommandon
 
 ```
-composer install                                  # bara dev-beroende: phpunit 9.6 (plattform låst till PHP 7.4)
+composer install                                  # phpunit 9.6 (dev) + plugin-update-checker; plattform låst till PHP 7.4
 vendor/bin/phpunit                                # alla tester
 vendor/bin/phpunit --filter test_osv_lookup       # ett test
 vendor/bin/phpunit tests/CvssTest.php             # en testfil
+php bin/build.php [v0.2.0]                        # bygger build/k-cve.zip (valfri tagg kontrolleras mot versionen)
 ```
 
 Lokal PHP är 8.3, men koden måste fungera i 7.4: ingen `match`, nullsafe, `str_contains`, union types eller konstruktor-promotion.
@@ -50,9 +52,20 @@ Flöde (`Scanner::run`): `Inventory::collect()` → `Updates::collect()` → upp
 - OSV ger bara CVSS-vektor och ingen poäng. `Cvss::scoreFromVector` räknar 3.x-poängen själv (v4 stöds inte,
   och då används GHSA-etiketten som reserv).
 
+## Release och uppdateringar
+
+Utgivning: höj versionen i **både** headern `Version:` och `KCVE_VERSION` i `k-cve.php`, committa, och kör
+`git tag vX.Y.Z && git push --tags`. `.github/workflows/release.yml` kör testerna på PHP 7.4, bygger
+`k-cve.zip` med `bin/build.php` (som avbryter om taggen och versionen skiljer sig) och skapar en GitHub Release.
+
+På kundsiterna hämtar Plugin Update Checker (`vendor/`, laddas i `k-cve.php`) den senaste releasen. Bara
+asseten `k-cve.zip` används (`REQUIRE_RELEASE_ASSETS`), aldrig GitHubs källkods-zip, eftersom den saknar
+`vendor/`. Zippens mapp måste heta `k-cve`, eftersom det är den sluggen uppdateringen matchar på. Headern `Update URI`
+hindrar att wordpress.org erbjuder ett annat plugin med samma slug. Inventory hoppar över pluginets egen mapp,
+så att dess `vendor/` inte rapporteras som ett bibliotek.
+
 ## Integrationstest
 
-Testa aldrig på riktiga kundsiter.
-Verifieringen gjordes på en tillfällig WP med SQLite (`sqlite-database-integration`) + WP-CLI-phar, med
+Testa aldrig på riktiga kundsiter. Verifieringen gjordes på en tillfällig WP med SQLite (`sqlite-database-integration`) + WP-CLI-phar, med
 WP 6.9.1, wpforms-lite 1.9.7.3 (facit: CVE-2026-32446) och ett testplugin med Guzzle 7.4.0 i
 `vendor/composer/installed.json`. Ett mu-plugin med `pre_wp_mail`-filter fångade mejlen till fil.

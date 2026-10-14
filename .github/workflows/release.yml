@@ -1,0 +1,36 @@
+# Bygger och publicerar k-cve.zip när en versionstagg pushas (git tag v0.2.0 && git push --tags).
+# Kundsiterna hämtar uppdateringen från den senaste releasen via Plugin Update Checker.
+name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lägsta PHP-versionen som pluginet stöder, så att 8.x-syntax fångas här.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: zip
+          tools: composer:v2
+
+      - name: Tester
+        run: |
+          composer install --no-interaction --no-progress
+          vendor/bin/phpunit
+
+      - name: Bygg k-cve.zip
+        run: php bin/build.php "$GITHUB_REF_NAME"
+
+      - name: Publicera release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" build/k-cve.zip --title "$GITHUB_REF_NAME" --generate-notes

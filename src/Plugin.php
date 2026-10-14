@@ -42,7 +42,7 @@ class Plugin {
 		try {
 			( new Scanner() )->run( false, false );
 		} catch ( \Throwable $e ) {
-			error_log( 'k-cve: ' . $e->getMessage() ); // phpcs:ignore -- cron har ingen annan kanal.
+			error_log( 'Klykk CVE: ' . $e->getMessage() ); // phpcs:ignore -- cron har ingen annan kanal.
 		}
 	}
 

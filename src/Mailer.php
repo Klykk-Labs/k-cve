@@ -41,6 +41,15 @@ class Mailer {
 		'curl'        => 'Server',
 	];
 
+	/** Fyrkantiga etiketter i dämpade färger, så de inte förväxlas med de runda, fyllda gradetiketterna. */
+	private const TYPE_COLORS = [
+		'WordPress' => [ '#dbeafe', '#1e3a8a' ],
+		'Plugin'    => [ '#ede9fe', '#5b21b6' ],
+		'Tema'      => [ '#fce7f3', '#9d174d' ],
+		'Bibliotek' => [ '#ccfbf1', '#115e59' ],
+		'Server'    => [ '#e5e7eb', '#1f2937' ],
+	];
+
 	public static function send( array $report, string $to ): bool {
 		return wp_mail( $to, self::subject( $report ), self::render( $report ), [ 'Content-Type: text/html; charset=UTF-8' ] );
 	}
@@ -60,12 +69,13 @@ class Mailer {
 		if ( $updates ) {
 			$summary .= ', ' . $updates . ' övriga uppdateringar';
 		}
-		return '[k-cve] ' . $report['site']['name'] . ': ' . $summary;
+		return '[Klykk CVE] ' . $report['site']['name'] . ': ' . $summary;
 	}
 
 	public static function render( array $report ): string {
 		$h    = 'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;font-size:14px;line-height:1.45';
 		$cell = 'padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top';
+		$nowrap = $cell . ';white-space:nowrap'; // Versioner och CVE-id ska inte brytas mitt i.
 		$out  = '<div style="' . $h . '">';
 		$out .= '<h2 style="margin:0 0 4px">Sårbarhetsrapport: ' . self::e( $report['site']['name'] ) . '</h2>';
 		$out .= '<p style="margin:0 0 16px;color:#4b5563"><a href="' . self::e( $report['site']['url'] ) . '">' . self::e( $report['site']['url'] ) . '</a> · '
@@ -93,21 +103,32 @@ class Mailer {
 				// T.ex. core-fynd (saknar fixed_in) när WP:s uppdateringsinfo inte hämtats än.
 				$fix = 'Uppdatera till senaste version';
 			}
-			$out .= '<h3 style="margin:20px 0 4px;font-size:15px">' . self::badge( $component['worst_grade'] ) . ' '
-				. self::e( ( self::TYPE_LABELS[ $component['type'] ] ?? $component['type'] ) . ': ' . $component['name'] . ' ' . $component['version'] ) . '</h3>';
-			$out .= '<p style="margin:0 0 6px;color:#4b5563">' . $fix
-				. ( $component['notes'] ? ' · ' . self::e( implode( ' · ', $component['notes'] ) ) : '' ) . '</p>';
+			$count = count( $component['findings'] );
+			$facts = [ $count . ( 1 === $count ? ' sårbarhet' : ' sårbarheter' ) ];
+			if ( $component['max_score'] > 0 ) {
+				$facts[] = 'högst CVSS ' . number_format( $component['max_score'], 1 );
+			}
+			// Accordion: <details> fälls ihop i wp-admin och Apple Mail; Gmail/Outlook visar allt utfällt.
+			$out .= '<details style="border:1px solid #e5e7eb;border-radius:6px;margin:0 0 8px">'
+				. '<summary style="cursor:pointer;padding:9px 12px;font-size:15px;line-height:1.6">'
+				. self::badge( $component['worst_grade'] ) . ' ' . self::typeTag( $component['type'] ) . ' '
+				. '<strong>' . self::e( $component['name'] . ' ' . $component['version'] ) . '</strong>'
+				. '<span style="color:#4b5563;font-size:13px"> · ' . self::e( implode( ' · ', $facts ) ) . ' · ' . $fix . '</span>'
+				. '</summary><div style="padding:0 12px 10px">';
+			if ( $component['notes'] ) {
+				$out .= '<p style="margin:0 0 6px;color:#4b5563">' . self::e( implode( ' · ', $component['notes'] ) ) . '</p>';
+			}
 			$out .= '<table style="border-collapse:collapse;width:100%;margin-bottom:8px"><tr>'
 				. '<th style="' . $cell . '">Grad</th><th style="' . $cell . '">CVSS</th><th style="' . $cell . '">Sårbarhet</th>'
-				. '<th style="' . $cell . '">Rättad i</th><th style="' . $cell . '">CVE / källa</th></tr>';
+				. '<th style="' . $nowrap . '">Rättad i</th><th style="' . $nowrap . '">CVE / källa</th></tr>';
 			foreach ( array_slice( $component['findings'], 0, self::MAX_ROWS ) as $finding ) {
 				$out .= '<tr>'
 					. '<td style="' . $cell . '">' . self::badge( $finding['grade'] ) . '</td>'
 					. '<td style="' . $cell . '">' . ( null !== $finding['score'] ? self::e( number_format( $finding['score'], 1 ) ) : '–' ) . '</td>'
 					. '<td style="' . $cell . '">' . self::e( $finding['title'] )
 					. ( $finding['kev'] ? ' <strong style="color:#991b1b">· Aktivt exploaterad (KEV)</strong>' : '' ) . '</td>'
-					. '<td style="' . $cell . '">' . ( $finding['unfixed'] ? 'Ingen fix' : self::e( $finding['fixed_in'] ?? '?' ) ) . '</td>'
-					. '<td style="' . $cell . '">' . self::links( $finding ) . '</td>'
+					. '<td style="' . $nowrap . '">' . ( $finding['unfixed'] ? 'Ingen fix' : self::e( $finding['fixed_in'] ?? '?' ) ) . '</td>'
+					. '<td style="' . $nowrap . '">' . self::links( $finding ) . '</td>'
 					. '</tr>';
 			}
 			$out .= '</table>';
@@ -115,13 +136,14 @@ class Mailer {
 			if ( $hidden > 0 ) {
 				$out .= '<p style="margin:0 0 8px;color:#4b5563">… och ' . $hidden . ' till med samma eller lägre grad (alla syns med <code>wp k-cve scan</code>).</p>';
 			}
+			$out .= '</div></details>';
 		}
 
 		if ( $report['updates'] ) {
 			$out .= '<h3 style="margin:24px 0 6px;font-size:15px">Övriga uppdateringar</h3>';
 			$out .= '<table style="border-collapse:collapse;width:100%"><tr><th style="' . $cell . '">Typ</th><th style="' . $cell . '">Namn</th><th style="' . $cell . '">Installerad</th><th style="' . $cell . '">Ny version</th></tr>';
 			foreach ( $report['updates'] as $update ) {
-				$out .= '<tr><td style="' . $cell . '">' . self::e( self::TYPE_LABELS[ $update['type'] ] ?? $update['type'] ) . '</td>'
+				$out .= '<tr><td style="' . $cell . '">' . self::typeTag( $update['type'] ) . '</td>'
 					. '<td style="' . $cell . '">' . self::e( $update['name'] ) . '</td>'
 					. '<td style="' . $cell . '">' . self::e( $update['current'] ) . '</td>'
 					. '<td style="' . $cell . '">' . self::e( $update['new'] ) . '</td></tr>';
@@ -138,7 +160,7 @@ class Mailer {
 				. implode( '<br>', array_map( [ self::class, 'e' ], $report['errors'] ) ) . '</p>';
 		}
 
-		$out .= '<p style="margin:24px 0 0;color:#6b7280;font-size:12px">Data: WPVulnerability.net och OSV.dev. Skickat av k-cve.</p>';
+		$out .= '<p style="margin:24px 0 0;color:#6b7280;font-size:12px">Data: WPVulnerability.net och OSV.dev. Skickat av Klykk CVE.</p>';
 		return $out . '</div>';
 	}
 
@@ -156,6 +178,13 @@ class Mailer {
 	private static function badge( string $grade, ?string $text = null ): string {
 		return '<span style="display:inline-block;padding:1px 7px;border-radius:9px;color:#fff;font-size:12px;font-weight:600;background:'
 			. self::GRADE_COLORS[ $grade ] . '">' . self::e( $text ?? self::GRADE_LABELS[ $grade ] ) . '</span>';
+	}
+
+	private static function typeTag( string $type ): string {
+		$label = self::TYPE_LABELS[ $type ] ?? $type;
+		list( $background, $color ) = self::TYPE_COLORS[ $label ] ?? self::TYPE_COLORS['Server'];
+		return '<span style="display:inline-block;padding:0 6px;border-radius:3px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;vertical-align:1px;background:'
+			. $background . ';color:' . $color . '">' . self::e( $label ) . '</span>';
 	}
 
 	private static function host( string $url ): string {
