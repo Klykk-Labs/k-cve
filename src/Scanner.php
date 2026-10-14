@@ -1,0 +1,151 @@
+<?php
+namespace KCve;
+
+use KCve\Sources\Osv;
+use KCve\Sources\WpVulnerability;
+
+defined( 'ABSPATH' ) || exit;
+
+/**
+ * Orkestrerar en körning: inventering → uppslag → rapport → ev. mejl.
+ */
+class Scanner {
+	private const LOCK      = 'kcve_running';
+	private const CACHE_TTL = 12 * HOUR_IN_SECONDS;
+	private const TIMEOUT   = 10;
+
+	/**
+	 * @param bool $force_mail Skicka även om inget ändrats sedan senaste mejlet.
+	 * @param bool $dry_run    Skicka aldrig mejl (förhandsvisning).
+	 * @return array Rapporten, plus 'mailed' => bool.
+	 */
+	public function run( bool $force_mail, bool $dry_run ): array {
+		if ( get_transient( self::LOCK ) ) {
+			throw new \RuntimeException( 'En kontroll pågår redan.' );
+		}
+		set_transient( self::LOCK, 1, 15 * MINUTE_IN_SECONDS );
+
+		try {
+			if ( function_exists( 'set_time_limit' ) ) {
+				@set_time_limit( 300 ); // phpcs:ignore -- kan vara avstängt på delade webbhotell.
+			}
+
+			$errors     = [];
+			$components = Inventory::collect();
+			try {
+				$updates = Updates::collect();
+			} catch ( \Throwable $e ) {
+				$updates  = [];
+				$errors[] = 'Uppdateringskontroll: ' . $e->getMessage();
+			}
+
+			$components = $this->lookup( $components, $errors );
+			$report     = Report::build(
+				[ 'name' => get_bloginfo( 'name' ), 'url' => home_url() ],
+				$components,
+				$updates,
+				$errors,
+				time()
+			);
+			update_option( Plugin::OPTION_LAST_REPORT, $report, false );
+
+			$report['mailed'] = $dry_run ? false : $this->maybeMail( $report, $force_mail );
+			return $report;
+		} finally {
+			delete_transient( self::LOCK );
+		}
+	}
+
+	private function lookup( array $components, array &$errors ): array {
+		$wpv = new WpVulnerability( [ $this, 'httpGet' ] );
+		foreach ( $components as &$component ) {
+			$component['known']    = true;
+			$component['findings'] = [];
+			if ( ! WpVulnerability::supports( $component['type'] ) ) {
+				continue;
+			}
+			try {
+				$result                = $wpv->lookup( $component );
+				$component['known']    = $result['known'];
+				$component['findings'] = $result['findings'];
+			} catch ( \Throwable $e ) {
+				$errors[] = $component['name'] . ' kunde inte kontrolleras: ' . $e->getMessage();
+			}
+		}
+		unset( $component );
+
+		$composer = array_filter(
+			$components,
+			static function ( $component ) {
+				return 'composer' === $component['type'];
+			}
+		);
+		if ( $composer ) {
+			try {
+				$osv = new Osv( [ $this, 'httpPost' ], [ $this, 'httpGet' ] );
+				foreach ( $osv->lookup( $composer ) as $index => $findings ) {
+					$components[ $index ]['findings'] = $findings;
+				}
+			} catch ( \Throwable $e ) {
+				$errors[] = 'Inbäddade bibliotek (OSV) kunde inte kontrolleras: ' . $e->getMessage();
+			}
+		}
+		return $components;
+	}
+
+	private function maybeMail( array $report, bool $force ): bool {
+		if ( ! Report::hasContent( $report ) ) {
+			// Inget att rapportera. Spara ändå, så att ett nytt fynd senare räknas som en ändring.
+			update_option( Plugin::OPTION_LAST_SENT, [ 'fingerprint' => $report['fingerprint'], 'time' => time() ], false );
+			return false;
+		}
+		$last = (array) get_option( Plugin::OPTION_LAST_SENT, [] );
+		if ( ! $force && ( $last['fingerprint'] ?? '' ) === $report['fingerprint'] ) {
+			return false;
+		}
+		if ( ! Mailer::send( $report, Plugin::recipient() ) ) {
+			return false;
+		}
+		update_option( Plugin::OPTION_LAST_SENT, [ 'fingerprint' => $report['fingerprint'], 'time' => time() ], false );
+		return true;
+	}
+
+	/** Cachade GET-anrop (12 h). Bara lyckade svar cachas. */
+	public function httpGet( string $url ): array {
+		$cache_key = 'kcve_' . md5( $url );
+		$cached    = get_transient( $cache_key );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		$data = $this->decode( wp_remote_get( $url, $this->requestArgs() ), $url );
+		set_transient( $cache_key, $data, self::CACHE_TTL );
+		return $data;
+	}
+
+	public function httpPost( string $url, array $body ): array {
+		$args                            = $this->requestArgs();
+		$args['body']                    = wp_json_encode( $body );
+		$args['headers']['Content-Type'] = 'application/json';
+		return $this->decode( wp_remote_post( $url, $args ), $url );
+	}
+
+	private function requestArgs(): array {
+		// Ingen site-URL i user-agent: kundens adress ska inte läcka till tredje part.
+		return [ 'timeout' => self::TIMEOUT, 'user-agent' => 'k-cve/' . KCVE_VERSION . ' (WordPress)', 'headers' => [ 'Accept' => 'application/json' ] ];
+	}
+
+	private function decode( $response, string $url ): array {
+		if ( is_wp_error( $response ) ) {
+			throw new \RuntimeException( $response->get_error_message() );
+		}
+		$code = wp_remote_retrieve_response_code( $response );
+		if ( 200 !== $code ) {
+			throw new \RuntimeException( "HTTP $code från " . wp_parse_url( $url, PHP_URL_HOST ) );
+		}
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( ! is_array( $data ) ) {
+			throw new \RuntimeException( 'Ogiltigt JSON-svar från ' . wp_parse_url( $url, PHP_URL_HOST ) );
+		}
+		return $data;
+	}
+}
