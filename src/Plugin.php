@@ -11,6 +11,7 @@ class Plugin {
 	public const OPTION_LAST_REPORT = 'kcve_last_report';
 	public const OPTION_LAST_SENT   = 'kcve_last_sent';
 	public const OPTION_FIRST_SEEN  = 'kcve_first_seen';
+	public const OPTION_BASELINE    = 'kcve_baseline';
 	public const CRON_HOOK          = 'kcve_scan';
 	public const INTERVALS          = [ 'daily' => 'Dagligen', 'weekly' => 'Veckovis' ];
 

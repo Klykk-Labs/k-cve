@@ -17,6 +17,18 @@ Om det finns något nytt skickas ett HTML-mejl. Sårbara komponenter kommer för
 Poängen sänks för inaktiva plugins och teman och för serverkomponenter. Skälen visas som etiketter.
 Faktorerna är konstanter i `src/Priority.php`.
 
+Allra överst finns **Integritet och intrångstecken**. Versionsjämförelsen visar sårbar kod men inte om någon
+redan tagit sig in, så pluginet kontrollerar också:
+
+- **Kärnfiler** mot WordPress egna checksummor: ändrade filer, saknade `.php`-filer och okända `.php`-filer i
+  `wp-admin/` och `wp-includes/`.
+- **Plugins från wordpress.org** mot plugin-checksummorna: ändrade och okända `.php`-filer. Premium-plugins och
+  teman saknar checksummor och kontrolleras inte.
+- **Körbara filer i uppladdningar** (`.php`, `.phtml`, `.phar` m.fl.). "Silence is golden"-filer utan kod ignoreras.
+- **Nya eller ändrade PHP-filer** i `mu-plugins/` och direkt i `wp-content/` (drop-ins), samt **nya
+  administratörskonton**, jämfört med förra kontrollen (optionen `kcve_baseline`). Dessa rapporteras en gång.
+  Vid den första kontrollen listas allt en gång för granskning, så att en redan infekterad site inte blir normalläget.
+
 ## Datakällor
 
 | Vad | Källa |
@@ -25,8 +37,10 @@ Faktorerna är konstanter i `src/Priority.php`.
 | Composer-paket | [OSV.dev](https://osv.dev/) (GitHub Advisory Database m.fl.) |
 | Tillgängliga uppdateringar | WordPress egen uppdateringsdata (inkl. premium-plugins med egen uppdaterare) |
 | Sannolikhet för utnyttjande | [EPSS](https://www.first.org/epss/) från FIRST.org, gratis och utan nyckel |
+| Filintegritet | WordPress.org: kärnans och pluginens checksummor |
 
-API-svar cachas i 12 timmar (transients `kcve_*`).
+API-svar cachas i 12 timmar (transients `kcve_*`). Plugin-checksummor cachas en vecka, eftersom en släppt version
+aldrig ändras.
 
 ## Installation och konfiguration
 
@@ -73,6 +87,8 @@ GitHub-kontot och organisationen med tvåfaktorsautentisering och håll nere ant
   minst 7 dagar gammalt, skickas rapporten igen med ämnet `[Klykk CVE] Påminnelse: …`. När ett fynd sågs första
   gången lagras i `kcve_first_seen`, och mejlet visar "öppet i N dagar".
 - Fynd som tillkommit sedan förra mejlet märks **NY**.
+- Integritetsfynd ingår i ändringskontrollen, så ett nytt fynd ger mejl direkt. Nya admins och nya eller
+  ändrade filer i mu-plugins mejlas alltid. De blir baslinje först när mejlet gått iväg.
 - "Kör och mejla rapport" på inställningssidan och `--force-mail` i WP-CLI skickar alltid.
 - Mejlet visar högst 10 fynd per komponent. Servrar kan ha över 100 CVE:er. Allt syns i `wp k-cve scan`.
 
@@ -89,6 +105,8 @@ wp k-cve scan --force-mail # mejla oavsett
 - Premium-plugins och -teman som inte finns i databasen listas som "Finns inte i sårbarhetsdatabasen" och kontrolleras inte.
 - Webbserverns version döljs ofta (`ServerTokens Prod`), och då hoppas den över.
 - Composer-paket som prefixats med PHP-Scoper kan heta något annat än originalet och missas då.
+- Integritetskontrollen hittar bara spår i filer och adminkonton. Skadlig kod som bara ligger i databasen (inlägg,
+  options) eller i ett tema syns inte. En angripare med skrivrätt kan också ändra pluginet självt.
 - WPVulnerability.net är ett communityprojekt utan SLA. Om ett uppslag misslyckas visas det under "Fel under kontrollen".
   Om ett fel försvinner till nästa körning räknas det som en ändring och ger ett nytt mejl.
 - Pluginet anropar **inte** `wp_version_check()`, eftersom den i cron-kontext startar WordPress automatiska

@@ -19,8 +19,9 @@ class Report {
 	 * @param array $errors     Fel som strängar.
 	 * @param array $first_seen Förra körningens { "<key>#<fynd-id>": timestamp }.
 	 * @param int   $since      Tidpunkt för senaste mejlet (0 = aldrig). Fynd sedda efter den är "nya".
+	 * @param array $integrity  Integritetsfynd [ { group, path } ], se Integrity.
 	 */
-	public static function build( array $site, array $components, array $updates, array $errors, int $time, array $first_seen = [], int $since = 0 ): array {
+	public static function build( array $site, array $components, array $updates, array $errors, int $time, array $first_seen = [], int $since = 0, array $integrity = [] ): array {
 		$update_by_key = array_column( $updates, null, 'key' );
 		$counts        = array_fill_keys( Cvss::GRADES, 0 );
 		$vulnerable    = [];
@@ -90,8 +91,9 @@ class Report {
 		$report = [
 			'site'       => $site,
 			'generated'  => $time,
+			'integrity'  => array_values( $integrity ),
 			'vulnerable' => $vulnerable,
-			'top'        => array_slice( array_column( $by_priority, 'key' ), 0, self::TOP ),
+			'top'        =>array_slice( array_column( $by_priority, 'key' ), 0, self::TOP ),
 			'updates'    => $other_updates,
 			'unknown'    => $unknown,
 			'errors'     => array_values( $errors ),
@@ -115,7 +117,7 @@ class Report {
 		if ( $force ) {
 			return 'forced';
 		}
-		if ( ( $last_sent['fingerprint'] ?? '' ) !== $report['fingerprint'] ) {
+		if ( self::hasEvents( $report ) || ( $last_sent['fingerprint'] ?? '' ) !== $report['fingerprint'] ) {
 			return 'changed';
 		}
 		if ( $report['overdue'] > 0 && $now - (int) ( $last_sent['time'] ?? 0 ) >= self::REMIND_AFTER_DAYS * self::DAY ) {
@@ -125,7 +127,17 @@ class Report {
 	}
 
 	public static function hasContent( array $report ): bool {
-		return ! empty( $report['vulnerable'] ) || ! empty( $report['updates'] );
+		return ! empty( $report['vulnerable'] ) || ! empty( $report['updates'] ) || ! empty( $report['integrity'] );
+	}
+
+	/** Baslinjehändelser (ny admin, ny fil i mu-plugins …) syns bara en gång och mejlas därför alltid. */
+	private static function hasEvents( array $report ): bool {
+		foreach ( $report['integrity'] ?? [] as $item ) {
+			if ( in_array( $item['group'], Integrity::EVENT_GROUPS, true ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Ändras bara när fynden eller uppdateringarna ändras, inte av ordning eller tidpunkt. */
@@ -138,6 +150,11 @@ class Report {
 		}
 		foreach ( $report['updates'] as $update ) {
 			$parts[] = 'update:' . $update['key'] . '@' . $update['new'];
+		}
+		foreach ( $report['integrity'] ?? [] as $item ) {
+			if ( ! in_array( $item['group'], Integrity::EVENT_GROUPS, true ) ) {
+				$parts[] = 'integrity:' . $item['group'] . ':' . $item['path'];
+			}
 		}
 		sort( $parts );
 		return sha1( implode( "\n", $parts ) );

@@ -25,10 +25,10 @@ Lokal PHP är 8.3, men koden måste fungera i 7.4: ingen `match`, nullsafe, `str
 ## Arkitektur
 
 Flöde (`Scanner::run`): `Inventory::collect()` → `Updates::collect()` → uppslag per komponent → EPSS →
-`Report::build()` → `Report::mailReason()` (ändrat fingerprint, påminnelse eller tvingat) → `Mailer::send()` → ping
-(`K_CVE_PING_URL`) om inget misslyckades.
+`IntegrityScan::run()` → `Report::build()` → `Report::mailReason()` (ändrat fingerprint, påminnelse eller tvingat) → `Mailer::send()` → ping
+(`K_CVE_PING_URL`) och ny baslinje (`kcve_baseline`) om inget misslyckades.
 
-- **Rena klasser (testas utan WordPress):** `VersionMatcher`, `Cvss`, `Report`, `Priority`, `Sources\WpVulnerability`,
+- **Rena klasser (testas utan WordPress):** `VersionMatcher`, `Cvss`, `Report`, `Priority`, `Integrity`, `Sources\WpVulnerability`,
   `Sources\Osv`, `Sources\Epss`, `Mailer::render()/subject()` och `Inventory::parse*()`. HTTP injiceras som callables
   i källorna, så testerna kör mot riktiga API-svar i `tests/fixtures/`. `tests/bootstrap.php` definierar
   `ABSPATH` så att filernas guard passerar.
@@ -41,6 +41,10 @@ Flöde (`Scanner::run`): `Inventory::collect()` → `Updates::collect()` → upp
 - `kcve_first_seen` nycklas `<komponentnyckel>#<fynd-id>` **utan version**, så att en uppdatering som inte rättar
   fyndet inte nollställer dagräkningen. "NY" betyder sett efter `kcve_last_sent.time`, alltså senaste mejlet och inte
   senaste körningen. Annars skulle en förhandsvisning i wp-admin förbruka etiketten.
+- Integritetsfynd är `{ group, path }` (`Integrity::GROUPS`). Grupperna i `EVENT_GROUPS` (nya admins och nya eller ändrade
+  filer i mu-plugins/wp-content, jämfört med `kcve_baseline`) ingår **inte** i fingerprintet. De försvinner nästa körning,
+  och det får inte räknas som en ändring. I stället ger de alltid `mailReason` 'changed'. Baslinjen sparas bara när
+  körningen inte är dry-run och mejlet inte misslyckades, annars försvinner händelsen innan den mejlats.
 - Lagrade rapporter (`kcve_last_report`) från äldre versioner renderas på adminsidan. Mailer måste därför tåla att
   nya nycklar saknas.
 
@@ -55,6 +59,10 @@ Flöde (`Scanner::run`): `Inventory::collect()` → `Updates::collect()` → upp
   kundens site.
 - Första `update_option()` på en option som inte finns går via `add_option()`. Därför hakar `Plugin` på både
   `add_option_` och `update_option_` för att schemalägga om.
+- `get_core_checksums()` listar även filer under `wp-content/` (standardteman, akismet). De hoppas över. Saknade
+  kärnfiler rapporteras bara för `.php`, eftersom `readme.html` och `license.txt` ofta tas bort som härdning.
+- Plugin-checksummornas `md5`/`sha256` är en sträng eller en lista (när filen skiljer sig mellan taggar). Svaret kan vara
+  nära 1 MB, så `Scanner::pluginChecksums` cachar bara de reducerade `.php`-hasharna, en vecka, även 404.
 - SQLite-drop-in (`DB_ENGINE === 'sqlite'`) utger sig för att vara MySQL 8.0.x, så DB-kontrollen hoppas över då.
 - OSV ger bara CVSS-vektor och ingen poäng. `Cvss::scoreFromVector` räknar 3.x-poängen själv (v4 stöds inte,
   och då används GHSA-etiketten som reserv).
@@ -78,3 +86,6 @@ WP 6.9.1, wpforms-lite 1.9.7.3 (facit: CVE-2026-32446) och ett testplugin med Gu
 `vendor/composer/installed.json`. Ett mu-plugin med `pre_wp_mail`-filter fångade mejlen till fil (returnera
 `false` för att simulera mejlfel). Livlinan verifierades med `K_CVE_PING_URL` mot en lokal `php -S`-router som loggar
 anropen. Påminnelser testas genom att `kcve_first_seen` och `kcve_last_sent.time` backdateras 8 dagar.
+Integriteten testas genom att plantera en ändrad och en okänd fil i `wp-includes/`, `uploads/2026/10/x.php`, ett nytt
+mu-plugin, en ny admin (`wp user create … --role=administrator`) och en ändrad och en okänd PHP-fil i wpforms-lite.
+Kontrollera att uppackningen av WP blev komplett: en avbruten uppackning ger hundratals "Saknad kärnfil".

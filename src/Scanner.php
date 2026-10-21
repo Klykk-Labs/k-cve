@@ -42,6 +42,9 @@ class Scanner {
 
 			$components = $this->lookup( $components, $errors );
 			$components = $this->epss( $components, $errors );
+			$baseline   = get_option( Plugin::OPTION_BASELINE, null );
+			$integrity  = IntegrityScan::run( [ $this, 'pluginChecksums' ], is_array( $baseline ) ? $baseline : null );
+			$errors     = array_merge( $errors, $integrity['errors'] );
 			$last_sent  = (array) get_option( Plugin::OPTION_LAST_SENT, [] );
 			$report     = Report::build(
 				[ 'name' => get_bloginfo( 'name' ), 'url' => home_url() ],
@@ -50,7 +53,8 @@ class Scanner {
 				$errors,
 				time(),
 				(array) get_option( Plugin::OPTION_FIRST_SEEN, [] ),
-				(int) ( $last_sent['time'] ?? 0 )
+				(int) ( $last_sent['time'] ?? 0 ),
+				$integrity['items']
 			);
 			update_option( Plugin::OPTION_FIRST_SEEN, $report['first_seen'], false );
 			update_option( Plugin::OPTION_LAST_REPORT, $report, false );
@@ -63,8 +67,10 @@ class Scanner {
 				// Även utan innehåll, så att ett nytt fynd senare räknas som en ändring.
 				update_option( Plugin::OPTION_LAST_SENT, [ 'fingerprint' => $report['fingerprint'], 'time' => time() ], false );
 			}
-			// Livlina: pinga bara när hela körningen lyckades. Uteblir pingen larmar tjänsten.
 			if ( ! $dry_run && ! $report['mail_failed'] ) {
+				// Baslinjen flyttas bara när händelserna nått fram, annars försvinner de ur nästa mejl.
+				update_option( Plugin::OPTION_BASELINE, $integrity['baseline'], false );
+				// Livlina: pinga bara när hela körningen lyckades. Uteblir pingen larmar tjänsten.
 				$this->ping();
 			}
 			return $report;
@@ -130,6 +136,23 @@ class Scanner {
 		if ( $url ) {
 			wp_remote_get( $url, [ 'timeout' => 5, 'user-agent' => 'k-cve/' . KCVE_VERSION ] );
 		}
+	}
+
+	/**
+	 * Checksummor för ett plugin från wordpress.org, bara .php-filer. null om pluginet eller versionen saknas där (404).
+	 * Cachas en vecka, även 404, eftersom en släppt version aldrig ändras. Lagras reducerat: hela svaret kan vara närmare 1 MB.
+	 */
+	public function pluginChecksums( string $slug, string $version ): ?array {
+		$cache_key = 'kcve_sums_' . md5( $slug . '@' . $version );
+		$cached    = get_transient( $cache_key );
+		if ( is_array( $cached ) ) {
+			return $cached['files'];
+		}
+		$url      = 'https://downloads.wordpress.org/plugin-checksums/' . rawurlencode( $slug ) . '/' . rawurlencode( $version ) . '.json';
+		$response = wp_remote_get( $url, $this->requestArgs() );
+		$files    = 404 === wp_remote_retrieve_response_code( $response ) ? null : Integrity::pluginExpected( $this->decode( $response, $url ) );
+		set_transient( $cache_key, [ 'files' => $files ], WEEK_IN_SECONDS );
+		return $files;
 	}
 
 	/** Cachade GET-anrop (12 h). Bara lyckade svar cachas. */

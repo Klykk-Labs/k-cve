@@ -8,6 +8,7 @@ delete_option( 'kcve_settings' );
 delete_option( 'kcve_last_report' );
 delete_option( 'kcve_last_sent' );
 delete_option( 'kcve_first_seen' );
+delete_option( 'kcve_baseline' );
 
 // Cachade API-svar (transients med prefixet kcve_).
 $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_kcve\\_%' OR option_name LIKE '\\_transient\\_timeout\\_kcve\\_%'" ); // phpcs:ignore

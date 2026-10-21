@@ -26,6 +26,7 @@ class Mailer {
 
 	/** Servrar kan ha 100+ CVE:er; mejlet visar de allvarligaste per komponent. */
 	private const MAX_ROWS = 10;
+	private const MAX_INTEGRITY_ROWS = 20;
 
 	private const TYPE_LABELS = [
 		'core'        => 'WordPress',
@@ -69,6 +70,10 @@ class Mailer {
 		if ( $updates ) {
 			$summary .= ', ' . $updates . ' övriga uppdateringar';
 		}
+		$integrity = count( $report['integrity'] ?? [] );
+		if ( $integrity ) {
+			$summary = $integrity . ' integritetsfynd, ' . $summary;
+		}
 		return '[Klykk CVE] ' . ( empty( $report['reminder'] ) ? '' : 'Påminnelse: ' ) . $report['site']['name'] . ': ' . $summary;
 	}
 
@@ -80,6 +85,26 @@ class Mailer {
 		$out .= '<h2 style="margin:0 0 4px">Sårbarhetsrapport: ' . self::e( $report['site']['name'] ) . '</h2>';
 		$out .= '<p style="margin:0 0 16px;color:#4b5563"><a href="' . self::e( $report['site']['url'] ) . '">' . self::e( $report['site']['url'] ) . '</a> · '
 			. self::e( gmdate( 'Y-m-d H:i', $report['generated'] ) ) . ' UTC</p>';
+
+		// Integritet först: ett möjligt intrång är viktigare än en sårbarhet som ännu inte utnyttjats.
+		if ( ! empty( $report['integrity'] ) ) {
+			$out .= '<div style="border:2px solid ' . self::GRADE_COLORS['critical'] . ';border-radius:6px;padding:10px 12px;margin:0 0 18px">'
+				. '<h3 style="margin:0 0 6px;font-size:15px;color:' . self::GRADE_COLORS['critical'] . '">Integritet och intrångstecken</h3>'
+				. '<p style="margin:0 0 8px;color:#4b5563">Filer och konton som inte stämmer med WordPress.org eller förra kontrollen. Kontrollera att ändringen är känd, annars kan siten vara komprometterad.</p>';
+			foreach ( Integrity::grouped( $report['integrity'] ) as $group => $paths ) {
+				$out .= '<p style="margin:8px 0 2px"><strong>' . self::e( Integrity::GROUPS[ $group ] ) . '</strong> (' . count( $paths ) . ')</p>'
+					. '<ul style="margin:0;padding-left:20px;font-family:Consolas,Menlo,monospace;font-size:12px">';
+				foreach ( array_slice( $paths, 0, self::MAX_INTEGRITY_ROWS ) as $path ) {
+					$out .= '<li>' . self::e( $path ) . '</li>';
+				}
+				$out .= '</ul>';
+				$hidden = count( $paths ) - self::MAX_INTEGRITY_ROWS;
+				if ( $hidden > 0 ) {
+					$out .= '<p style="margin:2px 0 0;color:#4b5563">… och ' . $hidden . ' till (alla syns med <code>wp k-cve scan</code>).</p>';
+				}
+			}
+			$out .= '</div>';
+		}
 
 		// Sammanfattning per grad.
 		$out .= '<p style="margin:0 0 16px">';

@@ -47,6 +47,11 @@ class Cli {
 		if ( $rows ) {
 			\WP_CLI\Utils\format_items( 'table', $rows, array_keys( $rows[0] ) );
 		}
+		foreach ( Integrity::grouped( $report['integrity'] ) as $group => $paths ) {
+			foreach ( $paths as $path ) {
+				\WP_CLI::warning( Integrity::GROUPS[ $group ] . ': ' . $path );
+			}
+		}
 		$by_key = array_column( $report['vulnerable'], null, 'key' );
 		foreach ( $report['top'] as $position => $key ) {
 			$reasons = $by_key[ $key ]['priority']['reasons'];

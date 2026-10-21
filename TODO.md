@@ -70,7 +70,15 @@ som ska åtgärdas först.
 Tester: `Epss` mot en fixtur, `Priority` med en tabell av fall och Mailer (sektionen finns och är tom
 när inga fynd finns).
 
-### Etapp 3 — Filintegritet och intrångstecken (0.4.0)
+### Etapp 3 — Filintegritet och intrångstecken (0.4.0) — KLAR, ej släppt
+
+Avvikelser från planen nedan:
+- Baslinjehändelser (ny admin, ny eller ändrad PHP-fil i mu-plugins/wp-content) ingår inte i fingerprintet men ger
+  alltid mejl. Annars skulle de ge ett extra mejl när de försvinner nästa körning. mu-plugins skannas rekursivt och
+  med innehållshash, så att en bakdörr i en befintlig fil också syns.
+- Saknade kärnfiler rapporteras bara för `.php`. "Silence is golden"-filer i uploads ignoreras.
+- Mätt på testsiten: integritetsdelen tar 1,6 s (3 plugins) och hela körningen 9 s med kall cache. Ingen egen
+  cron-händelse behövs än.
 
 **Problem:** versionsjämförelsen upptäcker sårbar kod, men inte att någon redan har tagit sig in.
 
