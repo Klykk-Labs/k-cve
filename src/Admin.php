@@ -28,6 +28,7 @@ class Admin {
 		return [
 			'email'    => sanitize_email( $input['email'] ?? '' ),
 			'interval' => isset( Plugin::INTERVALS[ $input['interval'] ?? '' ] ) ? $input['interval'] : 'daily',
+			'ping_url' => esc_url_raw( trim( (string) ( $input['ping_url'] ?? '' ) ), [ 'http', 'https' ] ),
 		];
 	}
 
@@ -40,7 +41,7 @@ class Admin {
 		$args = [ 'page' => self::PAGE ];
 		try {
 			$report         = ( new Scanner() )->run( $send, ! $send );
-			$args['kcve']   = $report['mailed'] ? 'mailed' : ( $send ? 'nothing' : 'done' );
+			$args['kcve']   = $report['mailed'] ? 'mailed' : ( $report['mail_failed'] ? 'failed' : ( $send ? 'nothing' : 'done' ) );
 		} catch ( \Throwable $e ) {
 			$args['kcve']       = 'error';
 			$args['kcve_error'] = rawurlencode( $e->getMessage() );
@@ -55,6 +56,7 @@ class Admin {
 		}
 		$settings  = Plugin::settings();
 		$locked    = defined( 'K_CVE_NOTIFY_EMAIL' ) && K_CVE_NOTIFY_EMAIL;
+		$ping_lock = defined( 'K_CVE_PING_URL' ) && K_CVE_PING_URL;
 		$report    = get_option( Plugin::OPTION_LAST_REPORT );
 		$last_sent = (array) get_option( Plugin::OPTION_LAST_SENT, [] );
 		$next      = wp_next_scheduled( Plugin::CRON_HOOK );
@@ -62,7 +64,8 @@ class Admin {
 		$messages  = [
 			'done'    => [ 'success', 'Kontrollen är klar. Inget mejl skickades (förhandsvisning).' ],
 			'mailed'  => [ 'success', 'Kontrollen är klar och rapporten mejlades till ' . Plugin::recipient() . '.' ],
-			'nothing' => [ 'info', 'Kontrollen är klar. Inget att rapportera, eller så misslyckades utskicket (se wp_mail-loggen).' ],
+			'nothing' => [ 'info', 'Kontrollen är klar. Inget att rapportera.' ],
+			'failed'  => [ 'error', 'Kontrollen är klar, men mejlet till ' . Plugin::recipient() . ' kunde inte skickas (wp_mail misslyckades).' ],
 			'error'   => [ 'error', 'Fel: ' . sanitize_text_field( wp_unslash( rawurldecode( $_GET['kcve_error'] ?? '' ) ) ) ], // phpcs:ignore
 		];
 		?>
@@ -101,6 +104,20 @@ class Admin {
 								Nästa körning: <?php echo $next ? esc_html( get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $next ), 'Y-m-d H:i' ) ) : 'inte schemalagd'; ?>.
 								WP-Cron körs bara när siten får besök. På siter med lite trafik bör en riktig cron anropa <code>wp-cron.php</code>.
 							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="kcve-ping">Livlina (ping-URL)</label></th>
+						<td>
+							<?php if ( $ping_lock ) : ?>
+								<code><?php echo esc_html( K_CVE_PING_URL ); ?></code>
+								<p class="description">Satt via <code>K_CVE_PING_URL</code> i wp-config.php.</p>
+								<input type="hidden" name="<?php echo esc_attr( Plugin::OPTION_SETTINGS ); ?>[ping_url]" value="<?php echo esc_attr( $settings['ping_url'] ); ?>">
+							<?php else : ?>
+								<input type="url" id="kcve-ping" class="regular-text" name="<?php echo esc_attr( Plugin::OPTION_SETTINGS ); ?>[ping_url]"
+									value="<?php echo esc_attr( $settings['ping_url'] ); ?>" placeholder="https://hc-ping.com/…">
+								<p class="description">Anropas (GET) efter varje lyckad schemalagd kontroll. Med t.ex. healthchecks.io får du larm om kontrollerna slutar köras eller mejlen inte går iväg. Lämna tomt för att stänga av.</p>
+							<?php endif; ?>
 						</td>
 					</tr>
 				</table>

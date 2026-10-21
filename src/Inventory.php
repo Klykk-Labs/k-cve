@@ -7,7 +7,7 @@ defined( 'ABSPATH' ) || exit;
  * Samlar allt som ska kontrolleras: core, plugins, teman, server-mjukvara och
  * Composer-paket som plugins/teman bäddar in under vendor/.
  *
- * Varje komponent: key, type, slug, name, version, notes[].
+ * Varje komponent: key, type, slug, name, version, active, notes[].
  */
 class Inventory {
 	public static function collect(): array {
@@ -49,23 +49,24 @@ class Inventory {
 			if ( $slug === $self ) {
 				continue; // Klykk CVE finns inte i databasen och skulle bara bli brus under "okända".
 			}
-			$notes = [ is_plugin_active( $file ) ? 'aktivt' : 'inaktivt' ];
+			$active = is_plugin_active( $file );
+			$notes  = [ $active ? 'aktivt' : 'inaktivt' ];
 			if ( isset( $required_by[ $slug ] ) ) {
 				$notes[] = 'krävs av ' . implode( ', ', $required_by[ $slug ] );
 			}
 			// Nyckeln måste bli "plugin:<slug>", samma som i Updates, annars kopplas inte uppdateringen till fynden.
-			$components[] = self::make( 'plugin', $slug, $data['Name'], $data['Version'], $notes );
+			$components[] = self::make( 'plugin', $slug, $data['Name'], $data['Version'], $notes, null, $active );
 		}
 		return $components;
 	}
 
 	private static function themes(): array {
-		$active     = get_stylesheet();
-		$themes     = wp_get_themes();
-		$components = [];
+		$active_theme = get_stylesheet();
+		$themes       = wp_get_themes();
+		$components   = [];
 		foreach ( $themes as $stylesheet => $theme ) {
 			$notes = [];
-			if ( $stylesheet === $active ) {
+			if ( $stylesheet === $active_theme ) {
 				$notes[] = 'aktivt tema';
 			}
 			$children = [];
@@ -77,7 +78,9 @@ class Inventory {
 			if ( $children ) {
 				$notes[] = 'förälder till ' . implode( ', ', $children );
 			}
-			$components[] = self::make( 'theme', $stylesheet, $theme->get( 'Name' ), $theme->get( 'Version' ), $notes );
+			// Föräldern till ett aktivt barntema körs också.
+			$active       = in_array( $stylesheet, [ $active_theme, get_template() ], true );
+			$components[] = self::make( 'theme', $stylesheet, $theme->get( 'Name' ), $theme->get( 'Version' ), $notes, null, $active );
 		}
 		return $components;
 	}
@@ -120,18 +123,20 @@ class Inventory {
 	}
 
 	private static function composer(): array {
-		$hosts = [];
+		$active_plugins = array_map( [ self::class, 'pluginSlug' ], (array) get_option( 'active_plugins', [] ) );
+		$active_themes  = [ get_stylesheet(), get_template() ];
+		$hosts          = [];
 		foreach ( glob( WP_PLUGIN_DIR . '/*', GLOB_ONLYDIR ) ?: [] as $dir ) {
-			$hosts[ $dir ] = 'plugin ' . basename( $dir );
+			$hosts[ $dir ] = [ 'plugin ' . basename( $dir ), in_array( basename( $dir ), $active_plugins, true ) ];
 		}
 		foreach ( glob( get_theme_root() . '/*', GLOB_ONLYDIR ) ?: [] as $dir ) {
-			$hosts[ $dir ] = 'tema ' . basename( $dir );
+			$hosts[ $dir ] = [ 'tema ' . basename( $dir ), in_array( basename( $dir ), $active_themes, true ) ];
 		}
 		// Vårt eget vendor/ innehåller bara dev-beroenden (phpunit) vid lokal utveckling.
 		unset( $hosts[ untrailingslashit( KCVE_DIR ) ] );
 
 		$components = [];
-		foreach ( $hosts as $dir => $label ) {
+		foreach ( $hosts as $dir => list( $label, $active ) ) {
 			$files = array_merge(
 				glob( $dir . '/vendor/composer/installed.json' ) ?: [],
 				glob( $dir . '/*/vendor/composer/installed.json' ) ?: []
@@ -144,7 +149,8 @@ class Inventory {
 						$package['name'],
 						$package['version'],
 						[ 'inbäddat i ' . $label ],
-						$label . '/' . $package['name']
+						$label . '/' . $package['name'],
+						$active
 					);
 				}
 			}
@@ -152,13 +158,14 @@ class Inventory {
 		return array_values( $components );
 	}
 
-	private static function make( string $type, string $slug, string $name, string $version, array $notes = [], ?string $id = null ): array {
+	private static function make( string $type, string $slug, string $name, string $version, array $notes = [], ?string $id = null, bool $active = true ): array {
 		return [
 			'key'     => $type . ':' . ( $id ?? $slug ),
 			'type'    => $type,
 			'slug'    => $slug,
 			'name'    => $name,
 			'version' => $version,
+			'active'  => $active,
 			'notes'   => $notes,
 		];
 	}

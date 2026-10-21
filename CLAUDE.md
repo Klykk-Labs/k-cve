@@ -24,18 +24,25 @@ Lokal PHP är 8.3, men koden måste fungera i 7.4: ingen `match`, nullsafe, `str
 
 ## Arkitektur
 
-Flöde (`Scanner::run`): `Inventory::collect()` → `Updates::collect()` → uppslag per komponent →
-`Report::build()` → `Mailer::send()` om fingerprint ändrats.
+Flöde (`Scanner::run`): `Inventory::collect()` → `Updates::collect()` → uppslag per komponent → EPSS →
+`Report::build()` → `Report::mailReason()` (ändrat fingerprint, påminnelse eller tvingat) → `Mailer::send()` → ping
+(`K_CVE_PING_URL`) om inget misslyckades.
 
-- **Rena klasser (testas utan WordPress):** `VersionMatcher`, `Cvss`, `Report`, `Sources\WpVulnerability`,
-  `Sources\Osv`, `Mailer::render()/subject()` och `Inventory::parse*()`. HTTP injiceras som callables
+- **Rena klasser (testas utan WordPress):** `VersionMatcher`, `Cvss`, `Report`, `Priority`, `Sources\WpVulnerability`,
+  `Sources\Osv`, `Sources\Epss`, `Mailer::render()/subject()` och `Inventory::parse*()`. HTTP injiceras som callables
   i källorna, så testerna kör mot riktiga API-svar i `tests/fixtures/`. `tests/bootstrap.php` definierar
   `ABSPATH` så att filernas guard passerar.
 - **WP-lager:** `Inventory` (WP-delarna), `Updates`, `Scanner` (HTTP med transient-cache, lås), `Plugin`
   (inställningar/cron/hooks), `Admin` (Verktyg → k-cve), `Cli` (`wp k-cve scan`).
 - **Komponentnyckeln `"<typ>:<slug>"` kopplar ihop fynd och uppdateringar** (`Report` matchar på `key`).
   Inventory och Updates måste bygga nyckeln likadant. Composer-paket har nyckeln `composer:<värd>/<paket>`.
-- Ett fynd är en array: `id, title, cves[{id,url}], links[], score, vector, grade, kev, unfixed, fixed_in`.
+- Ett fynd är en array: `id, title, cves[{id,url}], links[], score, vector, grade, kev, unfixed, fixed_in`, plus
+  `epss, epss_percentile` (Scanner) och `is_new, days_open` (Report). Komponenter har `active` (prioriteringen).
+- `kcve_first_seen` nycklas `<komponentnyckel>#<fynd-id>` **utan version**, så att en uppdatering som inte rättar
+  fyndet inte nollställer dagräkningen. "NY" betyder sett efter `kcve_last_sent.time`, alltså senaste mejlet och inte
+  senaste körningen. Annars skulle en förhandsvisning i wp-admin förbruka etiketten.
+- Lagrade rapporter (`kcve_last_report`) från äldre versioner renderas på adminsidan. Mailer måste därför tåla att
+  nya nycklar saknas.
 
 ## Icke-uppenbara fallgropar (hittade under verifiering)
 
@@ -68,4 +75,6 @@ så att dess `vendor/` inte rapporteras som ett bibliotek.
 
 Testa aldrig på riktiga kundsiter. Verifieringen gjordes på en tillfällig WP med SQLite (`sqlite-database-integration`) + WP-CLI-phar, med
 WP 6.9.1, wpforms-lite 1.9.7.3 (facit: CVE-2026-32446) och ett testplugin med Guzzle 7.4.0 i
-`vendor/composer/installed.json`. Ett mu-plugin med `pre_wp_mail`-filter fångade mejlen till fil.
+`vendor/composer/installed.json`. Ett mu-plugin med `pre_wp_mail`-filter fångade mejlen till fil (returnera
+`false` för att simulera mejlfel). Livlinan verifierades med `K_CVE_PING_URL` mot en lokal `php -S`-router som loggar
+anropen. Påminnelser testas genom att `kcve_first_seen` och `kcve_last_sent.time` backdateras 8 dagar.

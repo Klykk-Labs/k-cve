@@ -69,7 +69,7 @@ class Mailer {
 		if ( $updates ) {
 			$summary .= ', ' . $updates . ' övriga uppdateringar';
 		}
-		return '[Klykk CVE] ' . $report['site']['name'] . ': ' . $summary;
+		return '[Klykk CVE] ' . ( empty( $report['reminder'] ) ? '' : 'Påminnelse: ' ) . $report['site']['name'] . ': ' . $summary;
 	}
 
 	public static function render( array $report ): string {
@@ -92,17 +92,29 @@ class Mailer {
 			$out .= 'Inga kända sårbarheter hittades.';
 		}
 		$out .= '</p>';
+		if ( ! empty( $report['reminder'] ) ) {
+			$out .= '<p style="margin:0 0 16px;color:#991b1b"><strong>Påminnelse:</strong> ' . (int) $report['overdue']
+				. ' allvarliga sårbarheter (Kritisk/Hög) har varit öppna i minst ' . Report::REMIND_AFTER_DAYS . ' dagar.</p>';
+		}
+
+		// Åtgärda först: sorterat efter Priority (KEV, EPSS, åtkomst, aktivt) i stället för bara grad.
+		if ( ! empty( $report['top'] ) ) {
+			$by_key = array_column( $report['vulnerable'], null, 'key' );
+			$out   .= '<h3 style="margin:0 0 6px;font-size:15px">Åtgärda först</h3><ol style="margin:0 0 18px;padding-left:22px">';
+			foreach ( $report['top'] as $key ) {
+				$component = $by_key[ $key ];
+				$out      .= '<li style="margin:0 0 4px">' . self::typeTag( $component['type'] ) . ' '
+					. '<strong>' . self::e( $component['name'] . ' ' . $component['version'] ) . '</strong> · ' . self::fixText( $component );
+				foreach ( $component['priority']['reasons'] as $reason ) {
+					$out .= ' ' . self::reasonTag( $reason );
+				}
+				$out .= '</li>';
+			}
+			$out .= '</ol>';
+		}
 
 		foreach ( $report['vulnerable'] as $component ) {
-			$all_unfixed = ! in_array( false, array_column( $component['findings'], 'unfixed' ), true );
-			if ( $component['fix_version'] ) {
-				$fix = 'Uppdatera till <strong>' . self::e( $component['fix_version'] ) . '</strong>';
-			} elseif ( $all_unfixed ) {
-				$fix = '<strong style="color:#991b1b">Ingen rättad version känd</strong>';
-			} else {
-				// T.ex. core-fynd (saknar fixed_in) när WP:s uppdateringsinfo inte hämtats än.
-				$fix = 'Uppdatera till senaste version';
-			}
+			$fix   = self::fixText( $component );
 			$count = count( $component['findings'] );
 			$facts = [ $count . ( 1 === $count ? ' sårbarhet' : ' sårbarheter' ) ];
 			if ( $component['max_score'] > 0 ) {
@@ -113,6 +125,7 @@ class Mailer {
 				. '<summary style="cursor:pointer;padding:9px 12px;font-size:15px;line-height:1.6">'
 				. self::badge( $component['worst_grade'] ) . ' ' . self::typeTag( $component['type'] ) . ' '
 				. '<strong>' . self::e( $component['name'] . ' ' . $component['version'] ) . '</strong>'
+				. ( empty( $component['has_new'] ) ? '' : ' ' . self::newTag() )
 				. '<span style="color:#4b5563;font-size:13px"> · ' . self::e( implode( ' · ', $facts ) ) . ' · ' . $fix . '</span>'
 				. '</summary><div style="padding:0 12px 10px">';
 			if ( $component['notes'] ) {
@@ -126,7 +139,9 @@ class Mailer {
 					. '<td style="' . $cell . '">' . self::badge( $finding['grade'] ) . '</td>'
 					. '<td style="' . $cell . '">' . ( null !== $finding['score'] ? self::e( number_format( $finding['score'], 1 ) ) : '–' ) . '</td>'
 					. '<td style="' . $cell . '">' . self::e( $finding['title'] )
-					. ( $finding['kev'] ? ' <strong style="color:#991b1b">· Aktivt exploaterad (KEV)</strong>' : '' ) . '</td>'
+					. ( empty( $finding['is_new'] ) ? '' : ' ' . self::newTag() )
+					. ( $finding['kev'] ? ' <strong style="color:#991b1b">· Aktivt exploaterad (KEV)</strong>' : '' )
+					. self::daysOpen( (int) ( $finding['days_open'] ?? 0 ) ) . '</td>'
 					. '<td style="' . $nowrap . '">' . ( $finding['unfixed'] ? 'Ingen fix' : self::e( $finding['fixed_in'] ?? '?' ) ) . '</td>'
 					. '<td style="' . $nowrap . '">' . self::links( $finding ) . '</td>'
 					. '</tr>';
@@ -164,6 +179,23 @@ class Mailer {
 		return $out . '</div>';
 	}
 
+	private static function fixText( array $component ): string {
+		if ( $component['fix_version'] ) {
+			return 'Uppdatera till <strong>' . self::e( $component['fix_version'] ) . '</strong>';
+		}
+		if ( ! in_array( false, array_column( $component['findings'], 'unfixed' ), true ) ) {
+			return '<strong style="color:#991b1b">Ingen rättad version känd</strong>';
+		}
+		// T.ex. core-fynd (saknar fixed_in) när WP:s uppdateringsinfo inte hämtats än.
+		return 'Uppdatera till senaste version';
+	}
+
+	/** Skäl till prioriteringen, t.ex. "KEV" eller "utan inloggning". */
+	private static function reasonTag( string $reason ): string {
+		return '<span style="display:inline-block;padding:0 5px;border-radius:3px;font-size:11px;vertical-align:1px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db">'
+			. self::e( $reason ) . '</span>';
+	}
+
 	private static function links( array $finding ): string {
 		$links = [];
 		foreach ( $finding['cves'] as $cve ) {
@@ -178,6 +210,15 @@ class Mailer {
 	private static function badge( string $grade, ?string $text = null ): string {
 		return '<span style="display:inline-block;padding:1px 7px;border-radius:9px;color:#fff;font-size:12px;font-weight:600;background:'
 			. self::GRADE_COLORS[ $grade ] . '">' . self::e( $text ?? self::GRADE_LABELS[ $grade ] ) . '</span>';
+	}
+
+	/** Nytt sedan förra mejlet. */
+	private static function newTag(): string {
+		return '<span style="display:inline-block;padding:0 5px;border-radius:3px;font-size:11px;font-weight:700;vertical-align:1px;background:#15803d;color:#fff">NY</span>';
+	}
+
+	private static function daysOpen( int $days ): string {
+		return $days > 0 ? ' <span style="color:#6b7280">· öppet i ' . $days . ( 1 === $days ? ' dag' : ' dagar' ) . '</span>' : '';
 	}
 
 	private static function typeTag( string $type ): string {

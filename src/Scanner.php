@@ -1,6 +1,7 @@
 <?php
 namespace KCve;
 
+use KCve\Sources\Epss;
 use KCve\Sources\Osv;
 use KCve\Sources\WpVulnerability;
 
@@ -40,16 +41,32 @@ class Scanner {
 			}
 
 			$components = $this->lookup( $components, $errors );
+			$components = $this->epss( $components, $errors );
+			$last_sent  = (array) get_option( Plugin::OPTION_LAST_SENT, [] );
 			$report     = Report::build(
 				[ 'name' => get_bloginfo( 'name' ), 'url' => home_url() ],
 				$components,
 				$updates,
 				$errors,
-				time()
+				time(),
+				(array) get_option( Plugin::OPTION_FIRST_SEEN, [] ),
+				(int) ( $last_sent['time'] ?? 0 )
 			);
+			update_option( Plugin::OPTION_FIRST_SEEN, $report['first_seen'], false );
 			update_option( Plugin::OPTION_LAST_REPORT, $report, false );
 
-			$report['mailed'] = $dry_run ? false : $this->maybeMail( $report, $force_mail );
+			$reason                = $dry_run ? null : Report::mailReason( $report, $last_sent, time(), $force_mail );
+			$report['reminder']    = 'reminder' === $reason;
+			$report['mailed']      = $reason ? Mailer::send( $report, Plugin::recipient() ) : false;
+			$report['mail_failed'] = $reason && ! $report['mailed'];
+			if ( $report['mailed'] || ( ! $dry_run && ! Report::hasContent( $report ) ) ) {
+				// Även utan innehåll, så att ett nytt fynd senare räknas som en ändring.
+				update_option( Plugin::OPTION_LAST_SENT, [ 'fingerprint' => $report['fingerprint'], 'time' => time() ], false );
+			}
+			// Livlina: pinga bara när hela körningen lyckades. Uteblir pingen larmar tjänsten.
+			if ( ! $dry_run && ! $report['mail_failed'] ) {
+				$this->ping();
+			}
 			return $report;
 		} finally {
 			delete_transient( self::LOCK );
@@ -93,21 +110,26 @@ class Scanner {
 		return $components;
 	}
 
-	private function maybeMail( array $report, bool $force ): bool {
-		if ( ! Report::hasContent( $report ) ) {
-			// Inget att rapportera. Spara ändå, så att ett nytt fynd senare räknas som en ändring.
-			update_option( Plugin::OPTION_LAST_SENT, [ 'fingerprint' => $report['fingerprint'], 'time' => time() ], false );
-			return false;
+	/** EPSS är bara ett tillägg till prioriteringen: fel blir en rad i rapporten, inte en avbruten körning. */
+	private function epss( array $components, array &$errors ): array {
+		$scores = [];
+		$cves   = Epss::cves( $components );
+		if ( $cves ) {
+			try {
+				$scores = ( new Epss( [ $this, 'httpGet' ] ) )->lookup( $cves );
+			} catch ( \Throwable $e ) {
+				$errors[] = 'EPSS kunde inte hämtas: ' . $e->getMessage();
+			}
 		}
-		$last = (array) get_option( Plugin::OPTION_LAST_SENT, [] );
-		if ( ! $force && ( $last['fingerprint'] ?? '' ) === $report['fingerprint'] ) {
-			return false;
+		return Epss::annotate( $components, $scores );
+	}
+
+	/** Svaret ignoreras: ett misslyckat anrop syns som en utebliven ping hos tjänsten. Ingen sitedata skickas. */
+	private function ping(): void {
+		$url = Plugin::pingUrl();
+		if ( $url ) {
+			wp_remote_get( $url, [ 'timeout' => 5, 'user-agent' => 'k-cve/' . KCVE_VERSION ] );
 		}
-		if ( ! Mailer::send( $report, Plugin::recipient() ) ) {
-			return false;
-		}
-		update_option( Plugin::OPTION_LAST_SENT, [ 'fingerprint' => $report['fingerprint'], 'time' => time() ], false );
-		return true;
 	}
 
 	/** Cachade GET-anrop (12 h). Bara lyckade svar cachas. */

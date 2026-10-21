@@ -11,6 +11,12 @@ Om det finns något nytt skickas ett HTML-mejl. Sårbara komponenter kommer för
 (Kritisk ≥ 9.0 · Hög ≥ 7.0 · Medel ≥ 4.0 · Låg · Ej graderad) och med länk till CVE. Därefter listas
 övriga tillgängliga uppdateringar.
 
+Överst i mejlet finns **Åtgärda först**: de tre komponenter som är viktigast att åtgärda. Där räknas mer in
+än bara CVSS-graden. Poängen höjs om sårbarheten bekräftat utnyttjas (KEV), om
+[EPSS](https://www.first.org/epss/) bedömer att den sannolikt utnyttjas, och om den går att nå utan inloggning.
+Poängen sänks för inaktiva plugins och teman och för serverkomponenter. Skälen visas som etiketter.
+Faktorerna är konstanter i `src/Priority.php`.
+
 ## Datakällor
 
 | Vad | Källa |
@@ -18,6 +24,7 @@ Om det finns något nytt skickas ett HTML-mejl. Sårbara komponenter kommer för
 | core, plugins, teman, server | [WPVulnerability.net](https://www.wpvulnerability.com/), gratis och utan nyckel |
 | Composer-paket | [OSV.dev](https://osv.dev/) (GitHub Advisory Database m.fl.) |
 | Tillgängliga uppdateringar | WordPress egen uppdateringsdata (inkl. premium-plugins med egen uppdaterare) |
+| Sannolikhet för utnyttjande | [EPSS](https://www.first.org/epss/) från FIRST.org, gratis och utan nyckel |
 
 API-svar cachas i 12 timmar (transients `kcve_*`).
 
@@ -31,6 +38,14 @@ API-svar cachas i 12 timmar (transients `kcve_*`).
    ```
    Konstanten vinner över inställningen. Om ingen mottagare är satt används sitens admin-e-post.
 3. Välj intervall (dagligen/veckovis) på samma sida. Första körningen sker en timme efter aktivering.
+4. Valfritt men rekommenderat: sätt en **livlina**. Efter varje lyckad körning anropar pluginet en URL med GET.
+   Uteblir anropet, till exempel för att WP-Cron slutat köras, pluginet avaktiverats eller mejlet inte gick att
+   skicka, larmar tjänsten. Med [healthchecks.io](https://healthchecks.io/) skapar du en check per site, med perioden
+   lika med intervallet plus en dags marginal:
+   ```php
+   define( 'K_CVE_PING_URL', 'https://hc-ping.com/<uuid>' );
+   ```
+   Ingen sitedata skickas med anropet. URL:en kan också sättas på inställningssidan.
 
 **WP-Cron körs bara när siten får besök.** På siter med lite trafik bör en riktig cron anropa `wp-cron.php`.
 
@@ -54,6 +69,10 @@ GitHub-kontot och organisationen med tvåfaktorsautentisering och håll nere ant
 
 - Mejl skickas bara när rapporten **ändrats** sedan förra mejlet, det vill säga nya fynd, ny version eller ny uppdatering.
   Ett fingerprint lagras i optionen `kcve_last_sent`.
+- **Påminnelse:** om ett fynd med graden Kritisk eller Hög har varit öppet i minst 7 dagar, och senaste mejlet är
+  minst 7 dagar gammalt, skickas rapporten igen med ämnet `[Klykk CVE] Påminnelse: …`. När ett fynd sågs första
+  gången lagras i `kcve_first_seen`, och mejlet visar "öppet i N dagar".
+- Fynd som tillkommit sedan förra mejlet märks **NY**.
 - "Kör och mejla rapport" på inställningssidan och `--force-mail` i WP-CLI skickar alltid.
 - Mejlet visar högst 10 fynd per komponent. Servrar kan ha över 100 CVE:er. Allt syns i `wp k-cve scan`.
 

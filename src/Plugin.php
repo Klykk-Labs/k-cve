@@ -10,6 +10,7 @@ class Plugin {
 	public const OPTION_SETTINGS    = 'kcve_settings';
 	public const OPTION_LAST_REPORT = 'kcve_last_report';
 	public const OPTION_LAST_SENT   = 'kcve_last_sent';
+	public const OPTION_FIRST_SEEN  = 'kcve_first_seen';
 	public const CRON_HOOK          = 'kcve_scan';
 	public const INTERVALS          = [ 'daily' => 'Dagligen', 'weekly' => 'Veckovis' ];
 
@@ -47,7 +48,7 @@ class Plugin {
 	}
 
 	public static function settings(): array {
-		$settings = wp_parse_args( (array) get_option( self::OPTION_SETTINGS, [] ), [ 'email' => '', 'interval' => 'daily' ] );
+		$settings = wp_parse_args( (array) get_option( self::OPTION_SETTINGS, [] ), [ 'email' => '', 'interval' => 'daily', 'ping_url' => '' ] );
 		if ( ! isset( self::INTERVALS[ $settings['interval'] ] ) ) {
 			$settings['interval'] = 'daily';
 		}
@@ -60,5 +61,13 @@ class Plugin {
 			return (string) K_CVE_NOTIFY_EMAIL;
 		}
 		return self::settings()['email'] ?: (string) get_option( 'admin_email' );
+	}
+
+	/** K_CVE_PING_URL vinner över inställningen, av samma skäl som K_CVE_NOTIFY_EMAIL. */
+	public static function pingUrl(): string {
+		if ( defined( 'K_CVE_PING_URL' ) && K_CVE_PING_URL ) {
+			return (string) K_CVE_PING_URL;
+		}
+		return (string) self::settings()['ping_url'];
 	}
 }

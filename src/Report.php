@@ -8,16 +8,25 @@ defined( 'ABSPATH' ) || exit;
  * Ren logik utan WP-beroenden.
  */
 class Report {
+	/** Öppna Kritisk/Hög-fynd påminns om när de varit öppna så här länge och senaste mejlet är lika gammalt. */
+	public const REMIND_AFTER_DAYS = 7;
+	public const TOP = 3; // Rader i "Åtgärda först".
+	private const DAY = 86400; // DAY_IN_SECONDS finns inte utan WordPress (testerna).
+
 	/**
 	 * @param array $components Komponenter med 'key', 'name', 'version', 'known', 'findings', 'notes'.
 	 * @param array $updates    Tillgängliga uppdateringar med 'key', 'name', 'current', 'new'.
 	 * @param array $errors     Fel som strängar.
+	 * @param array $first_seen Förra körningens { "<key>#<fynd-id>": timestamp }.
+	 * @param int   $since      Tidpunkt för senaste mejlet (0 = aldrig). Fynd sedda efter den är "nya".
 	 */
-	public static function build( array $site, array $components, array $updates, array $errors, int $time ): array {
+	public static function build( array $site, array $components, array $updates, array $errors, int $time, array $first_seen = [], int $since = 0 ): array {
 		$update_by_key = array_column( $updates, null, 'key' );
 		$counts        = array_fill_keys( Cvss::GRADES, 0 );
 		$vulnerable    = [];
 		$unknown       = [];
+		$seen          = [];
+		$overdue       = 0;
 
 		foreach ( $components as $component ) {
 			if ( empty( $component['known'] ) ) {
@@ -28,12 +37,23 @@ class Report {
 			}
 			$findings = $component['findings'];
 			usort( $findings, [ self::class, 'compareFindings' ] );
-			foreach ( $findings as $finding ) {
+			foreach ( $findings as &$finding ) {
 				$counts[ $finding['grade'] ]++;
+				// Utan version i nyckeln: en uppdatering som inte rättar fyndet ska inte nollställa dagräkningen.
+				$seen_key             = $component['key'] . '#' . $finding['id'];
+				$seen[ $seen_key ]    = (int) ( $first_seen[ $seen_key ] ?? $time );
+				$finding['is_new']    = $since > 0 && $seen[ $seen_key ] > $since;
+				$finding['days_open'] = intdiv( max( 0, $time - $seen[ $seen_key ] ), self::DAY );
+				if ( Cvss::rank( $finding['grade'] ) <= Cvss::rank( 'high' ) && $finding['days_open'] >= self::REMIND_AFTER_DAYS ) {
+					$overdue++;
+				}
 			}
+			unset( $finding );
 			$component['findings']    = $findings;
 			$component['worst_grade'] = $findings[0]['grade'];
 			$component['max_score']   = max( array_map( 'floatval', array_column( $findings, 'score' ) ) ?: [ 0.0 ] );
+			$component['has_new']     = in_array( true, array_column( $findings, 'is_new' ), true );
+			$component['priority']    = Priority::component( $component );
 			$component['any_unfixed'] = in_array( true, array_column( $findings, 'unfixed' ), true );
 			$component['fix_version'] = isset( $update_by_key[ $component['key'] ] )
 				? $update_by_key[ $component['key'] ]['new']
@@ -46,6 +66,14 @@ class Report {
 			static function ( $a, $b ) {
 				return [ Cvss::rank( $a['worst_grade'] ), -$a['max_score'], ! $a['any_unfixed'], $a['name'] ]
 					<=> [ Cvss::rank( $b['worst_grade'] ), -$b['max_score'], ! $b['any_unfixed'], $b['name'] ];
+			}
+		);
+
+		$by_priority = $vulnerable;
+		usort(
+			$by_priority,
+			static function ( $a, $b ) {
+				return [ -$a['priority']['score'], $a['name'] ] <=> [ -$b['priority']['score'], $b['name'] ];
 			}
 		);
 
@@ -63,13 +91,37 @@ class Report {
 			'site'       => $site,
 			'generated'  => $time,
 			'vulnerable' => $vulnerable,
+			'top'        => array_slice( array_column( $by_priority, 'key' ), 0, self::TOP ),
 			'updates'    => $other_updates,
 			'unknown'    => $unknown,
 			'errors'     => array_values( $errors ),
 			'counts'     => $counts,
+			'first_seen' => $seen,
+			'overdue'    => $overdue,
 		];
 		$report['fingerprint'] = self::fingerprint( $report );
 		return $report;
+	}
+
+	/**
+	 * Varför rapporten ska mejlas: 'forced', 'changed' (nytt fingerprint), 'reminder' eller null (inget mejl).
+	 *
+	 * @param array $last_sent { fingerprint, time } för senaste mejlet.
+	 */
+	public static function mailReason( array $report, array $last_sent, int $now, bool $force ): ?string {
+		if ( ! self::hasContent( $report ) ) {
+			return null;
+		}
+		if ( $force ) {
+			return 'forced';
+		}
+		if ( ( $last_sent['fingerprint'] ?? '' ) !== $report['fingerprint'] ) {
+			return 'changed';
+		}
+		if ( $report['overdue'] > 0 && $now - (int) ( $last_sent['time'] ?? 0 ) >= self::REMIND_AFTER_DAYS * self::DAY ) {
+			return 'reminder';
+		}
+		return null;
 	}
 
 	public static function hasContent( array $report ): bool {

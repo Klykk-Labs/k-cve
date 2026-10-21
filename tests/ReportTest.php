@@ -74,4 +74,46 @@ class ReportTest extends TestCase {
 		$three        = Report::build( [ 'name' => 'T', 'url' => 'u' ], [ $a, $b ], [], [], 3 );
 		$this->assertNotSame( $one['fingerprint'], $three['fingerprint'] );
 	}
+	public function test_first_seen_is_kept_pruned_and_marks_new_since_last_mail(): void {
+		$day  = 86400;
+		$now  = 1000 + 8 * $day;
+		$a    = $this->component( 'plugin:a', '1.0', [ $this->finding( 'x', 7.5, 'high' ), $this->finding( 'y', 5.0, 'medium' ) ] );
+		$prev = [ 'plugin:a#x' => 1000, 'plugin:gone#z' => 500 ];
+
+		$report   = Report::build( [ 'name' => 'T', 'url' => 'u' ], [ $a ], [], [], $now, $prev, 1500 );
+		$findings = array_column( $report['vulnerable'][0]['findings'], null, 'id' );
+
+		$this->assertSame( [ 'plugin:a#x' => 1000, 'plugin:a#y' => $now ], $report['first_seen'], 'Försvunna fynd rensas' );
+		$this->assertFalse( $findings['x']['is_new'] );
+		$this->assertTrue( $findings['y']['is_new'], 'Sett efter senaste mejlet' );
+		$this->assertSame( 8, $findings['x']['days_open'] );
+		$this->assertSame( 0, $findings['y']['days_open'] );
+		$this->assertTrue( $report['vulnerable'][0]['has_new'] );
+		$this->assertSame( 1, $report['overdue'], 'Bara Kritisk/Hög öppna minst 7 dagar räknas' );
+		$this->assertSame( $report['fingerprint'], Report::build( [ 'name' => 'T', 'url' => 'u' ], [ $a ], [], [], $now )['fingerprint'], 'first_seen påverkar inte fingerprintet' );
+	}
+
+	public function test_nothing_is_new_before_first_mail(): void {
+		$a      = $this->component( 'plugin:a', '1.0', [ $this->finding( 'x', 7.5, 'high' ) ] );
+		$report = Report::build( [ 'name' => 'T', 'url' => 'u' ], [ $a ], [], [], 5000 );
+		$this->assertFalse( $report['vulnerable'][0]['findings'][0]['is_new'] );
+		$this->assertFalse( $report['vulnerable'][0]['has_new'] );
+	}
+
+	public function test_mail_reason(): void {
+		$day    = 86400;
+		$now    = 100 * $day;
+		$a      = $this->component( 'plugin:a', '1.0', [ $this->finding( 'x', 9.8, 'critical' ) ] );
+		$fresh  = Report::build( [ 'name' => 'T', 'url' => 'u' ], [ $a ], [], [], $now, [ 'plugin:a#x' => $now - $day ], 1 );
+		$old    = Report::build( [ 'name' => 'T', 'url' => 'u' ], [ $a ], [], [], $now, [ 'plugin:a#x' => $now - 10 * $day ], 1 );
+		$same   = function ( array $report, int $sent ) { return [ 'fingerprint' => $report['fingerprint'], 'time' => $sent ]; };
+
+		$this->assertNull( Report::mailReason( $this->build( [] ), [], $now, true ), 'Inget innehåll, inget mejl' );
+		$this->assertSame( 'changed', Report::mailReason( $fresh, [ 'fingerprint' => 'annat', 'time' => $now ], $now, false ) );
+		$this->assertSame( 'changed', Report::mailReason( $fresh, [], $now, false ) );
+		$this->assertNull( Report::mailReason( $fresh, $same( $fresh, $now - 10 * $day ), $now, false ), 'Inget fynd har varit öppet länge nog' );
+		$this->assertNull( Report::mailReason( $old, $same( $old, $now - 3 * $day ), $now, false ), 'Senaste mejlet är för nytt' );
+		$this->assertSame( 'reminder', Report::mailReason( $old, $same( $old, $now - 7 * $day ), $now, false ) );
+		$this->assertSame( 'forced', Report::mailReason( $fresh, $same( $fresh, $now ), $now, true ) );
+	}
 }
