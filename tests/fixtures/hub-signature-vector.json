@@ -1,0 +1,7 @@
+{
+  "_comment": "Gemensam testvektor för k-cve och klykk-dash: hex(hmac_sha256(secret, timestamp + '.' + body)). Body är exakta byte (UTF-8). Ändras aldrig utan att båda repona uppdateras.",
+  "secret": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "timestamp": 1792750000,
+  "body": "{\"site\":{\"name\":\"Testsajt åäö\",\"url\":\"https://example.test\"},\"generated\":1792750000,\"counts\":{\"critical\":1,\"high\":0},\"fingerprint\":\"abc\"}",
+  "signature": "7c3e830b63d26fe8e50edfc90eccef8798e3803a51347399b60bedfcb96087c8"
+}

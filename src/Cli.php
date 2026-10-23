@@ -66,6 +66,16 @@ class Cli {
 		if ( $report['mail_failed'] ) {
 			\WP_CLI::error( 'Mejlet till ' . Plugin::recipient() . ' kunde inte skickas (wp_mail misslyckades).' );
 		}
-		\WP_CLI::success( Mailer::subject( $report ) . ( $report['mailed'] ? ' (mejlat till ' . Plugin::recipient() . ')' : ( $dry_run ? ' (dry-run)' : ' (inget mejl: oförändrat)' ) ) );
+		if ( $report['hub_error'] ) {
+			\WP_CLI::error( 'Rapporten kunde inte skickas till hubben: ' . $report['hub_error'] );
+		}
+		if ( $dry_run ) {
+			$status = 'dry-run';
+		} elseif ( $report['mailed'] ) {
+			$status = 'mejlat till ' . Plugin::recipient();
+		} else {
+			$status = Plugin::mailEnabled() ? 'inget mejl: oförändrat' : 'mejl avstängt';
+		}
+		\WP_CLI::success( Mailer::subject( $report ) . ' (' . $status . ( $report['hub_sent'] ? ', skickad till hubben' : '' ) . ')' );
 	}
 }

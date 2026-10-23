@@ -59,16 +59,24 @@ class Scanner {
 			update_option( Plugin::OPTION_FIRST_SEEN, $report['first_seen'], false );
 			update_option( Plugin::OPTION_LAST_REPORT, $report, false );
 
-			$reason                = $dry_run ? null : Report::mailReason( $report, $last_sent, time(), $force_mail );
+			$reason                = $dry_run || ! Plugin::mailEnabled() ? null : Report::mailReason( $report, $last_sent, time(), $force_mail );
 			$report['reminder']    = 'reminder' === $reason;
 			$report['mailed']      = $reason ? Mailer::send( $report, Plugin::recipient() ) : false;
 			$report['mail_failed'] = $reason && ! $report['mailed'];
-			if ( $report['mailed'] || ( ! $dry_run && ! Report::hasContent( $report ) ) ) {
+
+			// Hubben får rapporten efter varje körning, även oförändrad: det är hjärtslaget.
+			$hub                 = $dry_run ? null : Plugin::hub();
+			$report['hub_error'] = $hub ? $this->sendToHub( $report, $hub ) : null;
+			$report['hub_sent']  = $hub && null === $report['hub_error'];
+
+			// Utan mejl räknas leveransen till hubben som "skickad", så att NY gäller sedan senaste rapporten dit.
+			$delivered = $report['mailed'] || ( $report['hub_sent'] && ! Plugin::mailEnabled() );
+			if ( $delivered || ( ! $dry_run && ! Report::hasContent( $report ) ) ) {
 				// Även utan innehåll, så att ett nytt fynd senare räknas som en ändring.
 				update_option( Plugin::OPTION_LAST_SENT, [ 'fingerprint' => $report['fingerprint'], 'time' => time() ], false );
 			}
-			if ( ! $dry_run && ! $report['mail_failed'] ) {
-				// Baslinjen flyttas bara när händelserna nått fram, annars försvinner de ur nästa mejl.
+			if ( ! $dry_run && ! $report['mail_failed'] && null === $report['hub_error'] ) {
+				// Baslinjen flyttas bara när händelserna nått fram, annars försvinner de ur nästa mejl/rapport.
 				update_option( Plugin::OPTION_BASELINE, $integrity['baseline'], false );
 				// Livlina: pinga bara när hela körningen lyckades. Uteblir pingen larmar tjänsten.
 				$this->ping();
@@ -136,6 +144,24 @@ class Scanner {
 		if ( $url ) {
 			wp_remote_get( $url, [ 'timeout' => 5, 'user-agent' => 'k-cve/' . KCVE_VERSION ] );
 		}
+	}
+
+	/** Signerad POST till hubben. null vid 2xx, annars felbeskrivningen. Svarets innehåll används inte. */
+	private function sendToHub( array $report, array $hub ): ?string {
+		try {
+			$request = Hub::request( $report, $hub['site'], $hub['secret'], time() );
+		} catch ( \Throwable $e ) {
+			return $e->getMessage();
+		}
+		$response = wp_remote_post(
+			$hub['url'],
+			[ 'timeout' => Hub::TIMEOUT, 'user-agent' => 'k-cve/' . KCVE_VERSION . ' (WordPress)', 'headers' => $request['headers'], 'body' => $request['body'] ]
+		);
+		if ( is_wp_error( $response ) ) {
+			return $response->get_error_message();
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		return $code >= 200 && $code < 300 ? null : "HTTP $code från hubben";
 	}
 
 	/**

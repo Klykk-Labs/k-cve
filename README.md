@@ -60,6 +60,20 @@ aldrig ändras.
    define( 'K_CVE_PING_URL', 'https://hc-ping.com/<uuid>' );
    ```
    Ingen sitedata skickas med anropet. URL:en kan också sättas på inställningssidan.
+5. Valfritt: skicka rapporten till en **central hubb** som samlar alla siter. Efter varje körning (utom dry-run),
+   även när inget ändrats, skickas rapporten med POST som JSON. Anropet fungerar därmed också som hjärtslag.
+   ```php
+   define( 'K_CVE_HUB_URL', 'https://hubb.example.com/wp-json/klykk-dash/v1/report' );
+   define( 'K_CVE_HUB_SITE', '12' );
+   define( 'K_CVE_HUB_SECRET', '<64 hex-tecken från hubben>' );
+   define( 'K_CVE_MAIL', false ); // valfritt: stäng av mejlet när hubben tagit över
+   ```
+   Anropet signeras med huvudena `X-KCve-Site`, `X-KCve-Timestamp` och
+   `X-KCve-Signature: hex(hmac_sha256(hemlighet, tidsstämpel + "." + kropp))`. Rapporten skickas utan intern
+   data (`first_seen`), och administratörskonton anges bara med ID, inte inloggningsnamn. Hubben anropar aldrig
+   siten. Ett svar som inte är 2xx räknas som ett misslyckat mejl: ingen ping, felkod i WP-CLI, och händelser
+   (ny admin, nya filer) skickas igen nästa körning. Konstanterna finns bara i `wp-config.php`, inte på
+   inställningssidan, så att hemligheten inte hamnar i databasen.
 
 **WP-Cron körs bara när siten får besök.** På siter med lite trafik bör en riktig cron anropa `wp-cron.php`.
 

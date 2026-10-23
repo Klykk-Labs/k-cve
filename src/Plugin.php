@@ -71,4 +71,23 @@ class Plugin {
 		}
 		return (string) self::settings()['ping_url'];
 	}
+
+	/** K_CVE_MAIL = false stänger av mejlet, t.ex. när hubben tagit över. Standard: mejla. */
+	public static function mailEnabled(): bool {
+		return ! defined( 'K_CVE_MAIL' ) || K_CVE_MAIL;
+	}
+
+	/**
+	 * Hubben, bara via wp-config.php (hemligheten ska inte ligga i databasen). null om någon av konstanterna saknas.
+	 *
+	 * @return array{url: string, site: string, secret: string}|null
+	 */
+	public static function hub(): ?array {
+		foreach ( [ 'K_CVE_HUB_URL', 'K_CVE_HUB_SITE', 'K_CVE_HUB_SECRET' ] as $constant ) {
+			if ( ! defined( $constant ) || ! constant( $constant ) ) {
+				return null;
+			}
+		}
+		return [ 'url' => (string) K_CVE_HUB_URL, 'site' => (string) K_CVE_HUB_SITE, 'secret' => (string) K_CVE_HUB_SECRET ];
+	}
 }

@@ -25,10 +25,16 @@ Lokal PHP är 8.3, men koden måste fungera i 7.4: ingen `match`, nullsafe, `str
 ## Arkitektur
 
 Flöde (`Scanner::run`): `Inventory::collect()` → `Updates::collect()` → uppslag per komponent → EPSS →
-`IntegrityScan::run()` → `Report::build()` → `Report::mailReason()` (ändrat fingerprint, påminnelse eller tvingat) → `Mailer::send()` → ping
-(`K_CVE_PING_URL`) och ny baslinje (`kcve_baseline`) om inget misslyckades.
+`IntegrityScan::run()` → `Report::build()` → `Report::mailReason()` (ändrat fingerprint, påminnelse eller tvingat) → `Mailer::send()` →
+POST till hubben (`K_CVE_HUB_*`, varje körning utom dry-run) → ping (`K_CVE_PING_URL`) och ny baslinje (`kcve_baseline`)
+om varken mejl eller hubb misslyckades.
 
-- **Rena klasser (testas utan WordPress):** `VersionMatcher`, `Cvss`, `Report`, `Priority`, `Integrity`, `Sources\WpVulnerability`,
+- **Hubben (0.5.0):** `Hub` (ren) bygger kroppen och signerar `hex(hmac_sha256(secret, timestamp + "." + body))` över
+  exakt de byte som skickas. `tests/fixtures/hub-signature-vector.json` är uträknad med Python och delas med hubbens
+  repo: ändra den aldrig på ett ställe. `Hub::payload` tar bort `first_seen` och ersätter `admin_*`-sökvägarna
+  (`login (ID n)`) med `ID n`. Med `K_CVE_MAIL` = false räknas en lyckad hubbleverans som "skickad" (`kcve_last_sent`),
+  annars skulle NY aldrig försvinna.
+- **Rena klasser (testas utan WordPress):** `VersionMatcher`, `Cvss`, `Report`, `Priority`, `Integrity`, `Hub`, `Sources\WpVulnerability`,
   `Sources\Osv`, `Sources\Epss`, `Mailer::render()/subject()` och `Inventory::parse*()`. HTTP injiceras som callables
   i källorna, så testerna kör mot riktiga API-svar i `tests/fixtures/`. `tests/bootstrap.php` definierar
   `ABSPATH` så att filernas guard passerar.
@@ -89,3 +95,7 @@ anropen. Påminnelser testas genom att `kcve_first_seen` och `kcve_last_sent.tim
 Integriteten testas genom att plantera en ändrad och en okänd fil i `wp-includes/`, `uploads/2026/10/x.php`, ett nytt
 mu-plugin, en ny admin (`wp user create … --role=administrator`) och en ändrad och en okänd PHP-fil i wpforms-lite.
 Kontrollera att uppackningen av WP blev komplett: en avbruten uppackning ger hundratals "Saknad kärnfil".
+Hubben (0.5.0) verifierades med `K_CVE_HUB_*` mot en lokal `php -S`-router som räknar om signaturen med `hash_equals`
+och svarar med statuskoden i en fil: dry-run skickar inget, en vanlig körning ger giltig signatur, inget `first_seen` och
+`admin_*` som `ID n`, svaret 500 eller en stängd port ger felkod 1 och ingen ping, och en ny admin följer med igen
+nästa körning. `K_CVE_MAIL` = false ger inget mejl men rapporten skickas ändå.

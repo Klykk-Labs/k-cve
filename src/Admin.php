@@ -42,6 +42,10 @@ class Admin {
 		try {
 			$report         = ( new Scanner() )->run( $send, ! $send );
 			$args['kcve']   = $report['mailed'] ? 'mailed' : ( $report['mail_failed'] ? 'failed' : ( $send ? 'nothing' : 'done' ) );
+			if ( $report['hub_error'] ) {
+				$args['kcve']       = 'hub_failed';
+				$args['kcve_error'] = rawurlencode( $report['hub_error'] );
+			}
 		} catch ( \Throwable $e ) {
 			$args['kcve']       = 'error';
 			$args['kcve_error'] = rawurlencode( $e->getMessage() );
@@ -67,6 +71,7 @@ class Admin {
 			'nothing' => [ 'info', 'Kontrollen är klar. Inget att rapportera.' ],
 			'failed'  => [ 'error', 'Kontrollen är klar, men mejlet till ' . Plugin::recipient() . ' kunde inte skickas (wp_mail misslyckades).' ],
 			'error'   => [ 'error', 'Fel: ' . sanitize_text_field( wp_unslash( rawurldecode( $_GET['kcve_error'] ?? '' ) ) ) ], // phpcs:ignore
+			'hub_failed' => [ 'error', 'Kontrollen är klar, men rapporten kunde inte skickas till hubben: ' . sanitize_text_field( wp_unslash( rawurldecode( $_GET['kcve_error'] ?? '' ) ) ) ], // phpcs:ignore
 		];
 		?>
 		<div class="wrap">

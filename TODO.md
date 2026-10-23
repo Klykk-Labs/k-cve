@@ -131,6 +131,10 @@ för CVE:erna på testsiten.
 
 ## Backlog
 
+- [x] **Rapportera till en central hubb (0.5.0, implementerat 2026-10-23, ej släppt):** `K_CVE_HUB_URL`, `K_CVE_HUB_SITE` och `K_CVE_HUB_SECRET`. POST av rapporten efter
+      varje körning, signerad med HMAC-SHA256 över `timestamp.body`, som också fungerar som hjärtslag. `K_CVE_MAIL`
+      (standard true) stänger av mejlet. Inloggningsnamn för admins skickas inte, bara ID. Hubben anropar aldrig sajten.
+
 - [ ] **Ska påminnelser gälla serverkomponenter?** Idag räknas PHP- och cURL-fynd som Kritisk/Hög in, så en site
       vars webbhotell inte uppgraderar får en påminnelse varje vecka. Ett alternativ är att undanta
       `Priority::SERVER_TYPES`, eller att lösa det tillsammans med "Webbhotellets ansvar" nedan.
