@@ -11,10 +11,15 @@ Om det finns något nytt skickas ett HTML-mejl. Sårbara komponenter kommer för
 (Kritisk ≥ 9.0 · Hög ≥ 7.0 · Medel ≥ 4.0 · Låg · Ej graderad) och med länk till CVE. Därefter listas
 övriga tillgängliga uppdateringar.
 
+Sist kommer **Webbhotellets ansvar**: PHP, databas, webbserver, cURL och ImageMagick. Det är webbhotellet som
+uppdaterar dem, och Linuxdistributioner rättar ofta säkerhetsbrister utan att byta versionsnummer. Därför ingår
+de inte i graderingen överst, i "Åtgärda först" eller i påminnelserna. Avsnittet har en färdig text att skicka
+till webbhotellet. En ny serverversion eller ett nytt fynd ger ändå ett mejl.
+
 Överst i mejlet finns **Åtgärda först**: de tre komponenter som är viktigast att åtgärda. Där räknas mer in
 än bara CVSS-graden. Poängen höjs om sårbarheten bekräftat utnyttjas (KEV), om
 [EPSS](https://www.first.org/epss/) bedömer att den sannolikt utnyttjas, och om den går att nå utan inloggning.
-Poängen sänks för inaktiva plugins och teman och för serverkomponenter. Skälen visas som etiketter.
+Poängen sänks för inaktiva plugins och teman. Skälen visas som etiketter.
 Faktorerna är konstanter i `src/Priority.php`.
 
 Allra överst finns **Integritet och intrångstecken**. Versionsjämförelsen visar sårbar kod men inte om någon
@@ -98,7 +103,7 @@ GitHub-kontot och organisationen med tvåfaktorsautentisering och håll nere ant
 
 - Mejl skickas bara när rapporten **ändrats** sedan förra mejlet, det vill säga nya fynd, ny version eller ny uppdatering.
   Ett fingerprint lagras i optionen `kcve_last_sent`.
-- **Påminnelse:** om ett fynd med graden Kritisk eller Hög har varit öppet i minst 7 dagar, och senaste mejlet är
+- **Påminnelse:** om ett fynd med graden Kritisk eller Hög (utom serverkomponenter) har varit öppet i minst 7 dagar, och senaste mejlet är
   minst 7 dagar gammalt, skickas rapporten igen med ämnet `[Klykk CVE] Påminnelse: …`. När ett fynd sågs första
   gången lagras i `kcve_first_seen`, och mejlet visar "öppet i N dagar".
 - Fynd som tillkommit sedan förra mejlet märks **NY**.

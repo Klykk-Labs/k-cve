@@ -100,6 +100,28 @@ class ReportTest extends TestCase {
 		$this->assertFalse( $report['vulnerable'][0]['has_new'] );
 	}
 
+	public function test_server_components_are_the_hosts_responsibility(): void {
+		$day    = 86400;
+		$now    = 100 * $day;
+		$db     = $this->component( 'mariadb:mariadb', '11.4.12', [ $this->finding( 'm', 9.9, 'critical', false, '11.4.13' ) ] );
+		$plugin = $this->component( 'plugin:a', '1.0', [ $this->finding( 'x', 5.0, 'medium' ) ] );
+		$build  = function ( array $components ) use ( $now, $day ) {
+			return Report::build( [ 'name' => 'T', 'url' => 'u' ], $components, [], [], $now, [ 'mariadb:mariadb#m' => $now - 30 * $day ], 1 );
+		};
+		$report = $build( [ $db, $plugin ] );
+
+		$this->assertSame( [ 'plugin:a' ], array_column( $report['vulnerable'], 'key' ) );
+		$this->assertSame( [ 'mariadb:mariadb' ], array_column( $report['hosting'], 'key' ) );
+		$this->assertSame( '11.4.13', $report['hosting'][0]['fix_version'] );
+		$this->assertSame( 30, $report['hosting'][0]['findings'][0]['days_open'] );
+		$this->assertSame( 0, $report['counts']['critical'], 'Graderingen överst gäller det som går att åtgärda på siten' );
+		$this->assertSame( 1, $report['counts']['medium'] );
+		$this->assertSame( [ 'plugin:a' ], $report['top'] );
+		$this->assertSame( 0, $report['overdue'], 'Inga påminnelser om serverkomponenter' );
+		$this->assertNotSame( $build( [ $plugin ] )['fingerprint'], $report['fingerprint'], 'En ny serverversion eller ett nytt fynd ger ändå ett mejl' );
+		$this->assertSame( 'changed', Report::mailReason( $build( [ $db ] ), [], $now, false ) );
+	}
+
 	public function test_mail_reason(): void {
 		$day    = 86400;
 		$now    = 100 * $day;

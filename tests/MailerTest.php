@@ -103,6 +103,26 @@ class MailerTest extends TestCase {
 		$this->assertStringNotContainsString( 'Åtgärda först', Mailer::render( Report::build( [ 'name' => 'S', 'url' => 'u' ], [], [], [], 1 ) ) );
 	}
 
+	public function test_hosting_section_last_with_text_to_host(): void {
+		$finding = function ( string $id, float $score, string $grade, ?string $fixed_in ) {
+			return [ 'id' => $id, 'title' => $id, 'cves' => [], 'links' => [], 'score' => $score, 'vector' => null, 'grade' => $grade, 'kev' => false, 'unfixed' => null === $fixed_in, 'fixed_in' => $fixed_in ];
+		};
+		$report = Report::build( [ 'name' => 'Kund AB', 'url' => 'https://kund.test' ], [
+			[ 'key' => 'mariadb:mariadb', 'type' => 'mariadb', 'slug' => 'mariadb', 'name' => 'MariaDB', 'version' => '11.4.12', 'known' => true, 'notes' => [], 'findings' => [ $finding( 'm1', 9.9, 'critical', '11.4.13' ), $finding( 'm2', 7.2, 'high', '11.4.13' ) ] ],
+			[ 'key' => 'curl:curl', 'type' => 'curl', 'slug' => 'curl', 'name' => 'cURL', 'version' => '7.81.0', 'known' => true, 'notes' => [], 'findings' => [ $finding( 'c1', 9.8, 'critical', null ) ] ],
+			[ 'key' => 'plugin:a', 'type' => 'plugin', 'slug' => 'a', 'name' => 'Aplugin', 'version' => '1.0', 'known' => true, 'notes' => [], 'findings' => [ $finding( 'a1', 5.0, 'medium', '1.1' ) ] ],
+		], [ [ 'key' => 'theme:t', 'type' => 'theme', 'name' => 'Tema T', 'current' => '1', 'new' => '2' ] ], [], 1 );
+		$html = Mailer::render( $report );
+
+		$this->assertMatchesRegularExpression( '#Åtgärda först</h3><ol.*Aplugin 1\.0.*</ol>.*Aplugin.*Övriga uppdateringar.*Webbhotellets ansvar.*MariaDB 11\.4\.12.*cURL 7\.81\.0#s', $html );
+		$this->assertDoesNotMatchRegularExpression( '#Åtgärda först.*(MariaDB|cURL).*</ol>#sU', $html );
+		$this->assertStringNotContainsString( 'Kritisk</span> ', explode( 'Webbhotellets ansvar', $html )[0], 'Brickorna överst räknar inte servern' );
+		$this->assertStringContainsString( 'https://kund.test', $html );
+		$this->assertStringContainsString( '- MariaDB 11.4.12: 2 kända sårbarheter (högst CVSS 9.9), rättade i 11.4.13', $html );
+		$this->assertStringContainsString( '- cURL 7.81.0: 1 känd sårbarhet (högst CVSS 9.8)' . "\n", $html );
+		$this->assertSame( '[Klykk CVE] Kund AB: 1 sårbara komponenter, 1 övriga uppdateringar, 2 serverkomponenter (webbhotellet)', Mailer::subject( $report ) );
+	}
+
 	public function test_old_stored_reports_still_render(): void {
 		$report = $this->report();
 		foreach ( $report['vulnerable'] as &$component ) {

@@ -42,6 +42,9 @@ om varken mejl eller hubb misslyckades.
   (inställningar/cron/hooks), `Admin` (Verktyg → k-cve), `Cli` (`wp k-cve scan`).
 - **Komponentnyckeln `"<typ>:<slug>"` kopplar ihop fynd och uppdateringar** (`Report` matchar på `key`).
   Inventory och Updates måste bygga nyckeln likadant. Composer-paket har nyckeln `composer:<värd>/<paket>`.
+- **Serverkomponenter** (`Priority::SERVER_TYPES`) hamnar i rapportens `hosting`, inte i `vulnerable`. De räknas inte i
+  `counts`, `top` eller `overdue` men ingår i fingerprintet. Det är medvetet att hubben (som läser `vulnerable` och
+  `counts`) därmed inte larmar på dem.
 - Ett fynd är en array: `id, title, cves[{id,url}], links[], score, vector, grade, kev, unfixed, fixed_in`, plus
   `epss, epss_percentile` (Scanner) och `is_new, days_open` (Report). Komponenter har `active` (prioriteringen).
 - `kcve_first_seen` nycklas `<komponentnyckel>#<fynd-id>` **utan version**, så att en uppdatering som inte rättar

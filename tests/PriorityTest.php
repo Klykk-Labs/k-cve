@@ -50,7 +50,7 @@ class PriorityTest extends TestCase {
 			$this->component( 'plugin:clean', [] ),
 		], [], [], 1 );
 
-		$this->assertSame( [ 'plugin:kev', 'plugin:high', 'php:php' ], $report['top'] );
+		$this->assertSame( [ 'plugin:kev', 'plugin:high', 'plugin:critical-inactive' ], $report['top'], 'Servern ligger under webbhotellets ansvar' );
 		$this->assertSame( 'plugin:critical-inactive', $report['vulnerable'][0]['key'], 'Accordion sorteras fortfarande efter grad' );
 		$this->assertSame( [ 'KEV' ], array_column( $report['vulnerable'], 'priority', 'key' )['plugin:kev']['reasons'] );
 	}

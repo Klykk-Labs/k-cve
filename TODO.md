@@ -5,7 +5,7 @@
 Ordningen bygger på värde per arbetsinsats. Etapp 1 och 2 blir **0.3.0** och etapp 3 blir **0.4.0**.
 Ren logik skrivs test först, som tidigare (`tests/`, fixtures med riktiga API-svar).
 
-### Etapp 1 — Livlina och påminnelser (0.3.0) — KLAR, ej släppt
+### Etapp 1 — Livlina och påminnelser (0.3.0) — KLAR, släppt i 0.4.0
 
 Avvikelser från planen nedan:
 - `kcve_first_seen` nycklas `<nyckel>#<fynd-id>` utan version. En uppdatering som inte rättar fyndet nollställer
@@ -39,7 +39,7 @@ sedan aldrig påminns om.
 Tester: `Report` (is_new, rensning), beslutet om påminnelse som en ren funktion i stil med
 `Notifier::shouldSend(report, last_sent, now)`, och Mailer (NY-etikett, påminnelseämne).
 
-### Etapp 2 — Prioritering med EPSS och "Åtgärda först" (0.3.0) — KLAR, ej släppt
+### Etapp 2 — Prioritering med EPSS och "Åtgärda först" (0.3.0) — KLAR, släppt i 0.4.0
 
 Avvikelser från planen nedan:
 - EPSS cachas 12 h via `Scanner::httpGet`, samma cache som de andra källorna, i stället för 24 h.
@@ -70,7 +70,7 @@ som ska åtgärdas först.
 Tester: `Epss` mot en fixtur, `Priority` med en tabell av fall och Mailer (sektionen finns och är tom
 när inga fynd finns).
 
-### Etapp 3 — Filintegritet och intrångstecken (0.4.0) — KLAR, ej släppt
+### Etapp 3 — Filintegritet och intrångstecken (0.4.0) — KLAR, släppt
 
 Avvikelser från planen nedan:
 - Baslinjehändelser (ny admin, ny eller ändrad PHP-fil i mu-plugins/wp-content) ingår inte i fingerprintet men ger
@@ -131,20 +131,18 @@ för CVE:erna på testsiten.
 
 ## Backlog
 
-- [x] **Rapportera till en central hubb (0.5.0, implementerat 2026-10-23, ej släppt):** `K_CVE_HUB_URL`, `K_CVE_HUB_SITE` och `K_CVE_HUB_SECRET`. POST av rapporten efter
+- [x] **Rapportera till en central hubb (0.5.0, släppt 2026-10-23):** `K_CVE_HUB_URL`, `K_CVE_HUB_SITE` och `K_CVE_HUB_SECRET`. POST av rapporten efter
       varje körning, signerad med HMAC-SHA256 över `timestamp.body`, som också fungerar som hjärtslag. `K_CVE_MAIL`
       (standard true) stänger av mejlet. Inloggningsnamn för admins skickas inte, bara ID. Hubben anropar aldrig sajten.
 
-- [ ] **Ska påminnelser gälla serverkomponenter?** Idag räknas PHP- och cURL-fynd som Kritisk/Hög in, så en site
-      vars webbhotell inte uppgraderar får en påminnelse varje vecka. Ett alternativ är att undanta
-      `Priority::SERVER_TYPES`, eller att lösa det tillsammans med "Webbhotellets ansvar" nedan.
+- [x] **Ska påminnelser gälla serverkomponenter?** Nej, löst i 0.6.0 tillsammans med "Webbhotellets ansvar".
 - [ ] **Tillfälliga API-fel ger extra mejl.** Behåll förra körningens fynd för komponenter som inte gick att
       kontrollera, märkta "(från förra kontrollen)", så att fingerprintet inte fladdrar.
 - [ ] **CI vid push och PR,** inte bara vid tagg.
 - [ ] **Integrationstester för WP-lagret** i Actions (Scanner-dedup, Inventory, Updates), med samma
       SQLite-WP-recept som testsiten.
-- [ ] **Sektionen "Webbhotellets ansvar":** PHP, DB, webbserver, cURL och ImageMagick flyttas längst ner,
-      med en genererad mejltext till webbhotellet ("Er PHP 8.3.14 har 23 kända sårbarheter … uppgradera till 8.3.33").
+- [x] **Sektionen "Webbhotellets ansvar" (0.6.0):** serverkomponenter i rapportens `hosting`, sist i mejlet, utan grad,
+      "Åtgärda först" och påminnelser, med en färdig text till webbhotellet.
 - [ ] **Övergivna plugins:** flagga `closed` från WPVulnerability och plugins vars `last_updated` på
       wordpress.org är äldre än 2 år, även utan känd CVE.
 - [ ] **Selektiv automatisk uppdatering (frivilligt, avstängt som standard):** filtret `auto_update_plugin`

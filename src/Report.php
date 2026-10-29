@@ -25,6 +25,7 @@ class Report {
 		$update_by_key = array_column( $updates, null, 'key' );
 		$counts        = array_fill_keys( Cvss::GRADES, 0 );
 		$vulnerable    = [];
+		$hosting       = [];
 		$unknown       = [];
 		$seen          = [];
 		$overdue       = 0;
@@ -36,16 +37,20 @@ class Report {
 			if ( empty( $component['findings'] ) ) {
 				continue;
 			}
+			// Serverprogram (PHP, databas, cURL …) uppdateras av webbhotellet: egen lista, utan grad, påminnelse och prioritet.
+			$hosted   = in_array( $component['type'], Priority::SERVER_TYPES, true );
 			$findings = $component['findings'];
 			usort( $findings, [ self::class, 'compareFindings' ] );
 			foreach ( $findings as &$finding ) {
-				$counts[ $finding['grade'] ]++;
+				if ( ! $hosted ) {
+					$counts[ $finding['grade'] ]++;
+				}
 				// Utan version i nyckeln: en uppdatering som inte rättar fyndet ska inte nollställa dagräkningen.
 				$seen_key             = $component['key'] . '#' . $finding['id'];
 				$seen[ $seen_key ]    = (int) ( $first_seen[ $seen_key ] ?? $time );
 				$finding['is_new']    = $since > 0 && $seen[ $seen_key ] > $since;
 				$finding['days_open'] = intdiv( max( 0, $time - $seen[ $seen_key ] ), self::DAY );
-				if ( Cvss::rank( $finding['grade'] ) <= Cvss::rank( 'high' ) && $finding['days_open'] >= self::REMIND_AFTER_DAYS ) {
+				if ( ! $hosted && Cvss::rank( $finding['grade'] ) <= Cvss::rank( 'high' ) && $finding['days_open'] >= self::REMIND_AFTER_DAYS ) {
 					$overdue++;
 				}
 			}
@@ -59,16 +64,15 @@ class Report {
 			$component['fix_version'] = isset( $update_by_key[ $component['key'] ] )
 				? $update_by_key[ $component['key'] ]['new']
 				: self::highestVersion( array_filter( array_column( $findings, 'fixed_in' ) ) );
-			$vulnerable[] = $component;
+			if ( $hosted ) {
+				$hosting[] = $component;
+			} else {
+				$vulnerable[] = $component;
+			}
 		}
 
-		usort(
-			$vulnerable,
-			static function ( $a, $b ) {
-				return [ Cvss::rank( $a['worst_grade'] ), -$a['max_score'], ! $a['any_unfixed'], $a['name'] ]
-					<=> [ Cvss::rank( $b['worst_grade'] ), -$b['max_score'], ! $b['any_unfixed'], $b['name'] ];
-			}
-		);
+		usort( $vulnerable, [ self::class, 'compareComponents' ] );
+		usort( $hosting, [ self::class, 'compareComponents' ] );
 
 		$by_priority = $vulnerable;
 		usort(
@@ -78,7 +82,7 @@ class Report {
 			}
 		);
 
-		$vulnerable_keys = array_column( $vulnerable, 'key' );
+		$vulnerable_keys = array_column( array_merge( $vulnerable, $hosting ), 'key' );
 		$other_updates   = array_values(
 			array_filter(
 				$updates,
@@ -93,7 +97,8 @@ class Report {
 			'generated'  => $time,
 			'integrity'  => array_values( $integrity ),
 			'vulnerable' => $vulnerable,
-			'top'        =>array_slice( array_column( $by_priority, 'key' ), 0, self::TOP ),
+			'hosting'    => $hosting,
+			'top'        => array_slice( array_column( $by_priority, 'key' ), 0, self::TOP ),
 			'updates'    => $other_updates,
 			'unknown'    => $unknown,
 			'errors'     => array_values( $errors ),
@@ -127,7 +132,7 @@ class Report {
 	}
 
 	public static function hasContent( array $report ): bool {
-		return ! empty( $report['vulnerable'] ) || ! empty( $report['updates'] ) || ! empty( $report['integrity'] );
+		return ! empty( $report['vulnerable'] ) || ! empty( $report['hosting'] ) || ! empty( $report['updates'] ) || ! empty( $report['integrity'] );
 	}
 
 	/** Baslinjehändelser (ny admin, ny fil i mu-plugins …) syns bara en gång och mejlas därför alltid. */
@@ -143,7 +148,8 @@ class Report {
 	/** Ändras bara när fynden eller uppdateringarna ändras, inte av ordning eller tidpunkt. */
 	public static function fingerprint( array $report ): string {
 		$parts = [];
-		foreach ( $report['vulnerable'] as $component ) {
+		// Serverkomponenter ingår: en ny version eller ett nytt fynd är värt att veta, även om webbhotellet åtgärdar det.
+		foreach ( array_merge( $report['vulnerable'], $report['hosting'] ?? [] ) as $component ) {
 			$ids = array_column( $component['findings'], 'id' );
 			sort( $ids );
 			$parts[] = $component['key'] . '@' . $component['version'] . ':' . implode( ',', $ids );
@@ -158,6 +164,11 @@ class Report {
 		}
 		sort( $parts );
 		return sha1( implode( "\n", $parts ) );
+	}
+
+	private static function compareComponents( array $a, array $b ): int {
+		return [ Cvss::rank( $a['worst_grade'] ), -$a['max_score'], ! $a['any_unfixed'], $a['name'] ]
+			<=> [ Cvss::rank( $b['worst_grade'] ), -$b['max_score'], ! $b['any_unfixed'], $b['name'] ];
 	}
 
 	private static function compareFindings( array $a, array $b ): int {

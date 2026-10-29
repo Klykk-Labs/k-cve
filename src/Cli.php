@@ -32,7 +32,7 @@ class Cli {
 		}
 
 		$rows = [];
-		foreach ( $report['vulnerable'] as $component ) {
+		foreach ( array_merge( $report['vulnerable'], $report['hosting'] ) as $component ) {
 			foreach ( $component['findings'] as $finding ) {
 				$rows[] = [
 					'grad'       => Mailer::GRADE_LABELS[ $finding['grade'] ],

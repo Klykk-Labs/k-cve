@@ -70,6 +70,10 @@ class Mailer {
 		if ( $updates ) {
 			$summary .= ', ' . $updates . ' övriga uppdateringar';
 		}
+		$hosting = count( $report['hosting'] ?? [] );
+		if ( $hosting ) {
+			$summary .= ', ' . $hosting . ' serverkomponenter (webbhotellet)';
+		}
 		$integrity = count( $report['integrity'] ?? [] );
 		if ( $integrity ) {
 			$summary = $integrity . ' integritetsfynd, ' . $summary;
@@ -114,7 +118,7 @@ class Mailer {
 			}
 		}
 		if ( ! $report['vulnerable'] ) {
-			$out .= 'Inga kända sårbarheter hittades.';
+			$out .= empty( $report['hosting'] ) ? 'Inga kända sårbarheter hittades.' : 'Inga kända sårbarheter i WordPress, plugins, teman eller bibliotek.';
 		}
 		$out .= '</p>';
 		if ( ! empty( $report['reminder'] ) ) {
@@ -139,44 +143,7 @@ class Mailer {
 		}
 
 		foreach ( $report['vulnerable'] as $component ) {
-			$fix   = self::fixText( $component );
-			$count = count( $component['findings'] );
-			$facts = [ $count . ( 1 === $count ? ' sårbarhet' : ' sårbarheter' ) ];
-			if ( $component['max_score'] > 0 ) {
-				$facts[] = 'högst CVSS ' . number_format( $component['max_score'], 1 );
-			}
-			// Accordion: <details> fälls ihop i wp-admin och Apple Mail; Gmail/Outlook visar allt utfällt.
-			$out .= '<details style="border:1px solid #e5e7eb;border-radius:6px;margin:0 0 8px">'
-				. '<summary style="cursor:pointer;padding:9px 12px;font-size:15px;line-height:1.6">'
-				. self::badge( $component['worst_grade'] ) . ' ' . self::typeTag( $component['type'] ) . ' '
-				. '<strong>' . self::e( $component['name'] . ' ' . $component['version'] ) . '</strong>'
-				. ( empty( $component['has_new'] ) ? '' : ' ' . self::newTag() )
-				. '<span style="color:#4b5563;font-size:13px"> · ' . self::e( implode( ' · ', $facts ) ) . ' · ' . $fix . '</span>'
-				. '</summary><div style="padding:0 12px 10px">';
-			if ( $component['notes'] ) {
-				$out .= '<p style="margin:0 0 6px;color:#4b5563">' . self::e( implode( ' · ', $component['notes'] ) ) . '</p>';
-			}
-			$out .= '<table style="border-collapse:collapse;width:100%;margin-bottom:8px"><tr>'
-				. '<th style="' . $cell . '">Grad</th><th style="' . $cell . '">CVSS</th><th style="' . $cell . '">Sårbarhet</th>'
-				. '<th style="' . $nowrap . '">Rättad i</th><th style="' . $nowrap . '">CVE / källa</th></tr>';
-			foreach ( array_slice( $component['findings'], 0, self::MAX_ROWS ) as $finding ) {
-				$out .= '<tr>'
-					. '<td style="' . $cell . '">' . self::badge( $finding['grade'] ) . '</td>'
-					. '<td style="' . $cell . '">' . ( null !== $finding['score'] ? self::e( number_format( $finding['score'], 1 ) ) : '–' ) . '</td>'
-					. '<td style="' . $cell . '">' . self::e( $finding['title'] )
-					. ( empty( $finding['is_new'] ) ? '' : ' ' . self::newTag() )
-					. ( $finding['kev'] ? ' <strong style="color:#991b1b">· Aktivt exploaterad (KEV)</strong>' : '' )
-					. self::daysOpen( (int) ( $finding['days_open'] ?? 0 ) ) . '</td>'
-					. '<td style="' . $nowrap . '">' . ( $finding['unfixed'] ? 'Ingen fix' : self::e( $finding['fixed_in'] ?? '?' ) ) . '</td>'
-					. '<td style="' . $nowrap . '">' . self::links( $finding ) . '</td>'
-					. '</tr>';
-			}
-			$out .= '</table>';
-			$hidden = count( $component['findings'] ) - self::MAX_ROWS;
-			if ( $hidden > 0 ) {
-				$out .= '<p style="margin:0 0 8px;color:#4b5563">… och ' . $hidden . ' till med samma eller lägre grad (alla syns med <code>wp k-cve scan</code>).</p>';
-			}
-			$out .= '</div></details>';
+			$out .= self::component( $component, $cell, $nowrap );
 		}
 
 		if ( $report['updates'] ) {
@@ -191,6 +158,20 @@ class Mailer {
 			$out .= '</table>';
 		}
 
+		// Sist: serverprogram som webbhotellet ansvarar för, med en text att skicka till dem.
+		if ( ! empty( $report['hosting'] ) ) {
+			$out .= '<h3 style="margin:24px 0 6px;font-size:15px">Webbhotellets ansvar</h3>'
+				. '<p style="margin:0 0 8px;color:#4b5563">Serverprogram som webbhotellet installerar och uppdaterar. De ingår inte i graderingen, '
+				. '"Åtgärda först" eller påminnelserna. Versionsnumret säger inte allt: Linuxdistributioner rättar ofta säkerhetsbrister '
+				. 'utan att byta version, så fynden kan redan vara åtgärdade.</p>';
+			foreach ( $report['hosting'] as $component ) {
+				$out .= self::component( $component, $cell, $nowrap );
+			}
+			$out .= '<p style="margin:12px 0 4px"><strong>Text till webbhotellet</strong></p>'
+				. '<pre style="margin:0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;white-space:pre-wrap;font-family:inherit">'
+				. self::e( self::hostingText( $report ) ) . '</pre>';
+		}
+
 		if ( $report['unknown'] ) {
 			$out .= '<p style="margin:20px 0 0;color:#4b5563"><strong>Finns inte i sårbarhetsdatabasen</strong> (t.ex. premium-plugins, kontrolleras inte): '
 				. self::e( implode( ', ', $report['unknown'] ) ) . '</p>';
@@ -202,6 +183,74 @@ class Mailer {
 
 		$out .= '<p style="margin:24px 0 0;color:#6b7280;font-size:12px">Data: WPVulnerability.net och OSV.dev. Skickat av Klykk CVE.</p>';
 		return $out . '</div>';
+	}
+
+	/** Accordion för en sårbar komponent. */
+	private static function component( array $component, string $cell, string $nowrap ): string {
+		$fix   = self::fixText( $component );
+		$count = count( $component['findings'] );
+		$facts = [ $count . ( 1 === $count ? ' sårbarhet' : ' sårbarheter' ) ];
+		if ( $component['max_score'] > 0 ) {
+			$facts[] = 'högst CVSS ' . number_format( $component['max_score'], 1 );
+		}
+		// Accordion: <details> fälls ihop i wp-admin och Apple Mail; Gmail/Outlook visar allt utfällt.
+		$out = '<details style="border:1px solid #e5e7eb;border-radius:6px;margin:0 0 8px">'
+			. '<summary style="cursor:pointer;padding:9px 12px;font-size:15px;line-height:1.6">'
+			. self::badge( $component['worst_grade'] ) . ' ' . self::typeTag( $component['type'] ) . ' '
+			. '<strong>' . self::e( $component['name'] . ' ' . $component['version'] ) . '</strong>'
+			. ( empty( $component['has_new'] ) ? '' : ' ' . self::newTag() )
+			. '<span style="color:#4b5563;font-size:13px"> · ' . self::e( implode( ' · ', $facts ) ) . ' · ' . $fix . '</span>'
+			. '</summary><div style="padding:0 12px 10px">';
+		if ( $component['notes'] ) {
+			$out .= '<p style="margin:0 0 6px;color:#4b5563">' . self::e( implode( ' · ', $component['notes'] ) ) . '</p>';
+		}
+		$out .= '<table style="border-collapse:collapse;width:100%;margin-bottom:8px"><tr>'
+			. '<th style="' . $cell . '">Grad</th><th style="' . $cell . '">CVSS</th><th style="' . $cell . '">Sårbarhet</th>'
+			. '<th style="' . $nowrap . '">Rättad i</th><th style="' . $nowrap . '">CVE / källa</th></tr>';
+		foreach ( array_slice( $component['findings'], 0, self::MAX_ROWS ) as $finding ) {
+			$out .= '<tr>'
+				. '<td style="' . $cell . '">' . self::badge( $finding['grade'] ) . '</td>'
+				. '<td style="' . $cell . '">' . ( null !== $finding['score'] ? self::e( number_format( $finding['score'], 1 ) ) : '–' ) . '</td>'
+				. '<td style="' . $cell . '">' . self::e( $finding['title'] )
+				. ( empty( $finding['is_new'] ) ? '' : ' ' . self::newTag() )
+				. ( $finding['kev'] ? ' <strong style="color:#991b1b">· Aktivt exploaterad (KEV)</strong>' : '' )
+				. self::daysOpen( (int) ( $finding['days_open'] ?? 0 ) ) . '</td>'
+				. '<td style="' . $nowrap . '">' . ( $finding['unfixed'] ? 'Ingen fix' : self::e( $finding['fixed_in'] ?? '?' ) ) . '</td>'
+				. '<td style="' . $nowrap . '">' . self::links( $finding ) . '</td>'
+				. '</tr>';
+		}
+		$out .= '</table>';
+		$hidden = count( $component['findings'] ) - self::MAX_ROWS;
+		if ( $hidden > 0 ) {
+			$out .= '<p style="margin:0 0 8px;color:#4b5563">… och ' . $hidden . ' till med samma eller lägre grad (alla syns med <code>wp k-cve scan</code>).</p>';
+		}
+		$out .= '</div></details>';
+		return $out;
+	}
+
+	/** Färdig text att skicka till webbhotellet. Ren text, escapas av anroparen. */
+	private static function hostingText( array $report ): string {
+		$lines = [];
+		foreach ( $report['hosting'] as $component ) {
+			$count   = count( $component['findings'] );
+			$line    = '- ' . $component['name'] . ' ' . $component['version'] . ': ' . $count . ( 1 === $count ? ' känd sårbarhet' : ' kända sårbarheter' );
+			$line   .= $component['max_score'] > 0 ? ' (högst CVSS ' . number_format( $component['max_score'], 1 ) . ')' : '';
+			$line   .= $component['fix_version'] ? ', rättade i ' . $component['fix_version'] : '';
+			$lines[] = $line;
+		}
+		return "Hej!
+
+Vår säkerhetsbevakning av " . $report['site']['url'] . " visar att servern kör programversioner med kända sårbarheter:
+
+"
+			. implode( "
+", $lines ) . "
+
+"
+			. 'Om ni installerar säkerhetsrättelser från Linuxdistributionen kan bristerna redan vara åtgärdade trots versionsnumret. '
+			. "Kan ni bekräfta att servern har de senaste säkerhetsuppdateringarna, eller berätta när ni planerar att uppgradera?
+
+Tack!";
 	}
 
 	private static function fixText( array $component ): string {
