@@ -75,9 +75,22 @@ class Integrity {
 		return 1 === preg_match( self::EXECUTABLE, $path );
 	}
 
-	/** "Silence is golden"-filer (bara kommentarer) läggs i uploads av många plugins och är ofarliga. */
-	public static function isStub( string $contents ): bool {
-		return 1 === preg_match( '#^\s*<\?php(?:\s+|//[^\n]*|\#[^\n]*|/\*.*?\*/)*(?:\?>\s*)?$#s', $contents );
+	/**
+	 * PHP-filer som plugins lägger i uploads och wp-content och som inte kan köra något: bara kommentarer
+	 * ("Silence is golden"), header() med fasta strängar (WPForms 404-vakt), eller exit/die först
+	 * (MC4WP:s debug-log.php, där loggraderna efter exit aldrig körs). En //- eller #-kommentar slutar vid ?>.
+	 *
+	 * @param bool $complete false om $contents bara är början av filen: då räcker bara exit-vakten.
+	 */
+	public static function isHarmless( string $contents, bool $complete = true ): bool {
+		$matched = preg_match(
+			'#^\s*<\?php(?:\s+|(?://|\#)(?:[^\n?]|\?(?!>))*|/\*.*?\*/'
+			. '|header\(\s*(?:\$_SERVER\[\s*\'SERVER_PROTOCOL\'\s*\]\s*\.\s*)?\'[^\'\\\\]*\'\s*\)\s*;)*'
+			. '(?:(?<exit>(?:exit|die)\s*(?:\(\s*\))?\s*;).*|(?:\?>\s*)?$)#s',
+			$contents,
+			$m
+		);
+		return 1 === $matched && ( $complete || ! empty( $m['exit'] ) );
 	}
 
 	/**

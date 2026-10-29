@@ -36,10 +36,26 @@ class IntegrityTest extends TestCase {
 		foreach ( [ 'bild.jpg', 'x.php.jpg', 'php', 'a.phps' ] as $name ) {
 			$this->assertFalse( Integrity::isExecutable( $name ), $name );
 		}
-		$this->assertTrue( Integrity::isStub( "<?php\n// Silence is golden.\n" ) );
-		$this->assertTrue( Integrity::isStub( '<?php' ) );
-		$this->assertFalse( Integrity::isStub( '<?php system($_GET["c"]);' ) );
-		$this->assertFalse( Integrity::isStub( "<?php // Silence is golden.\neval(\$_POST['x']);" ) );
+		$this->assertTrue( Integrity::isHarmless( "<?php\n// Silence is golden.\n" ) );
+		$this->assertTrue( Integrity::isHarmless( '<?php' ) );
+		$this->assertFalse( Integrity::isHarmless( '<?php system($_GET["c"]);' ) );
+		$this->assertFalse( Integrity::isHarmless( "<?php // Silence is golden.\neval(\$_POST['x']);" ) );
+		// En //-kommentar slutar vid en sluttagg, så det som följer är ny kod.
+		$this->assertFalse( Integrity::isHarmless( '<?php // x ?><?php system($_GET["c"]);' ) );
+		$this->assertFalse( Integrity::isHarmless( "<?php # x ?>\n<?php eval(\$_POST['x']);" ) );
+	}
+
+	public function test_harmless_guards_from_plugins(): void {
+		// WPForms uploads/wpforms/cache/index.php.
+		$this->assertTrue( Integrity::isHarmless( "<?php\nheader( \$_SERVER['SERVER_PROTOCOL'] . ' 404 Not Found' );\nheader( 'Status: 404 Not Found' );\n" ) );
+		// MC4WP debug-log.php: allt efter exit körs aldrig, inte ens kod som loggats från formulär.
+		$this->assertTrue( Integrity::isHarmless( "<?php exit; ?>\n[2026-10-29] Fel: <?php system('x'); ?>\n" ) );
+		$this->assertTrue( Integrity::isHarmless( "<?php die(); ?>\nlogg", false ), 'Exit-vakten räcker även för en avkortad fil' );
+		$this->assertFalse( Integrity::isHarmless( "<?php\n// bara kommentarer i början\n", false ), 'Avkortad fil utan exit kan ha kod längre ned' );
+		$this->assertFalse( Integrity::isHarmless( "<?php header( \$_GET['h'] );" ) );
+		$this->assertFalse( Integrity::isHarmless( "<?php header( 'x' ); \$_SERVER['SERVER_PROTOCOL']( 'id' );" ) );
+		$this->assertFalse( Integrity::isHarmless( '<?php exit_handler(); system("x");' ) );
+		$this->assertFalse( Integrity::isHarmless( '<?php system("x"); exit;' ) );
 	}
 
 	public function test_baseline_changes(): void {

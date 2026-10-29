@@ -67,6 +67,10 @@ om varken mejl eller hubb misslyckades.
   `add_option_` och `update_option_` för att schemalägga om.
 - `get_core_checksums()` listar även filer under `wp-content/` (standardteman, akismet). De hoppas över. Saknade
   kärnfiler rapporteras bara för `.php`, eftersom `readme.html` och `license.txt` ofta tas bort som härdning.
+- Kärnans checksummor hämtas för det **installerade paketets** språk (`$wp_local_package`, annars `en_US`), inte
+  `get_locale()`. En site som installerats på engelska och sedan fått svenska har annars en "ändrad" `version.php`.
+- `Integrity::isHarmless` släpper igenom kommentarer, `header()` med fasta strängar och `exit`/`die` först. En `//`- eller
+  `#`-kommentar slutar vid en PHP-sluttagg, så kod efter den räknas. Filer över 1 KB läses bara i början och måste då börja med exit.
 - Plugin-checksummornas `md5`/`sha256` är en sträng eller en lista (när filen skiljer sig mellan taggar). Svaret kan vara
   nära 1 MB, så `Scanner::pluginChecksums` cachar bara de reducerade `.php`-hasharna, en vecka, även 404.
 - SQLite-drop-in (`DB_ENGINE === 'sqlite'`) utger sig för att vara MySQL 8.0.x, så DB-kontrollen hoppas över då.

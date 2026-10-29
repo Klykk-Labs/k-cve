@@ -10,6 +10,9 @@ class IntegrityScan {
 	/** Övre gräns för poster som gås igenom i uploads, som kan vara mycket stor. */
 	private const MAX_UPLOAD_ENTRIES = 50000;
 
+	/** Så mycket av en fil som läses för Integrity::isHarmless(). Större filer måste börja med exit. */
+	private const HARMLESS_READ_BYTES = 1024;
+
 	/**
 	 * @param callable   $plugin_checksums (slug, version) => { path: [sha256] } eller null om pluginet saknas på wordpress.org.
 	 * @param array|null $baseline         Förra körningens { files, admins }, eller null första gången.
@@ -27,7 +30,9 @@ class IntegrityScan {
 		if ( null === $baseline ) {
 			// En redan infekterad site ska inte tyst bli normalläget: visa allt en gång.
 			foreach ( array_keys( $current['files'] ) as $path ) {
-				$items[] = [ 'group' => 'file_review', 'path' => $path ];
+				if ( ! self::harmless( self::watchedPath( $path ) ) ) {
+					$items[] = [ 'group' => 'file_review', 'path' => $path ];
+				}
 			}
 			foreach ( $current['admins'] as $id => $login ) {
 				$items[] = [ 'group' => 'admin_review', 'path' => self::adminLabel( $id, $login ) ];
@@ -35,7 +40,9 @@ class IntegrityScan {
 		} else {
 			$files = Integrity::changes( (array) ( $baseline['files'] ?? [] ), $current['files'] );
 			foreach ( $files['new'] as $path ) {
-				$items[] = [ 'group' => 'file_new', 'path' => $path ];
+				if ( ! self::harmless( self::watchedPath( $path ) ) ) {
+					$items[] = [ 'group' => 'file_new', 'path' => $path ];
+				}
 			}
 			foreach ( $files['changed'] as $path ) {
 				$items[] = [ 'group' => 'file_changed', 'path' => $path ];
@@ -49,10 +56,14 @@ class IntegrityScan {
 
 	/** Kärnfiler mot WordPress egna checksummor (md5). wp-content ingår inte i jämförelsen. */
 	private static function core( array &$items, array &$errors ): void {
+		global $wp_local_package;
 		require_once ABSPATH . 'wp-admin/includes/update.php';
+		// Det installerade paketets språk, inte sitens: en site som installerats på engelska och sedan fått
+		// svenska har en version.php utan $wp_local_package. Samma val som WordPress gör i update_core().
+		$locale    = ! empty( $wp_local_package ) ? (string) $wp_local_package : 'en_US';
 		$version   = get_bloginfo( 'version' );
-		$checksums = get_core_checksums( $version, get_locale() );
-		if ( ! is_array( $checksums ) && 'en_US' !== get_locale() ) {
+		$checksums = get_core_checksums( $version, $locale );
+		if ( ! is_array( $checksums ) && 'en_US' !== $locale ) {
 			$checksums = get_core_checksums( $version, 'en_US' );
 		}
 		if ( ! is_array( $checksums ) ) {
@@ -137,7 +148,7 @@ class IntegrityScan {
 		}
 	}
 
-	/** Körbara filer i uploads: så skrivs webshells in via sårbara uppladdningsformulär. Bara filnamn, inget innehåll. */
+	/** Körbara filer i uploads: så skrivs webshells in via sårbara uppladdningsformulär. Kända ofarliga vakter hoppas över. */
 	private static function uploads( array &$items, array &$errors ): void {
 		$base = wp_upload_dir( null, false )['basedir'] ?? '';
 		if ( ! $base || ! is_dir( $base ) ) {
@@ -152,7 +163,7 @@ class IntegrityScan {
 			if ( ! $file->isFile() || ! Integrity::isExecutable( $file->getFilename() ) ) {
 				continue;
 			}
-			if ( $file->getSize() < 1024 && Integrity::isStub( (string) file_get_contents( $file->getPathname() ) ) ) {
+			if ( self::harmless( $file->getPathname() ) ) {
 				continue;
 			}
 			$items[] = [ 'group' => 'uploads', 'path' => 'uploads/' . self::relative( $file->getPathname(), $base ) ];
@@ -172,6 +183,20 @@ class IntegrityScan {
 		}
 		ksort( $files );
 		return $files;
+	}
+
+	private static function harmless( string $file ): bool {
+		$size = (int) @filesize( $file ); // phpcs:ignore -- en fil som försvunnit räknas inte som ofarlig.
+		$head = @file_get_contents( $file, false, null, 0, self::HARMLESS_READ_BYTES ); // phpcs:ignore
+		return is_string( $head ) && Integrity::isHarmless( $head, $size <= self::HARMLESS_READ_BYTES );
+	}
+
+	/** watchedFiles()-nyckel → absolut sökväg. */
+	private static function watchedPath( string $path ): string {
+		if ( 0 === strpos( $path, 'mu-plugins/' ) ) {
+			return WPMU_PLUGIN_DIR . '/' . substr( $path, strlen( 'mu-plugins/' ) );
+		}
+		return WP_CONTENT_DIR . '/' . substr( $path, strlen( 'wp-content/' ) );
 	}
 
 	/** { ID: login } för administratörer. */

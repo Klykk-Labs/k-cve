@@ -3,7 +3,7 @@
  * Plugin Name:       Klykk CVE Sårbarhetsbevakning
  * Plugin URI:        https://github.com/Klykk-Labs/k-cve
  * Description:       Kontrollerar regelbundet WP-kärna, plugins, teman och deras beroenden mot kända sårbarheter och mejlar en rapport graderad efter CVSS, med CVE-länkar.
- * Version:           0.5.0
+ * Version:           0.5.1
  * Requires at least: 6.5
  * Requires PHP:      7.4
  * Author:            Robert Arbestål
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'KCVE_VERSION', '0.5.0' );
+define( 'KCVE_VERSION', '0.5.1' );
 define( 'KCVE_DIR', plugin_dir_path( __FILE__ ) );
 
 require KCVE_DIR . 'src/autoload.php';

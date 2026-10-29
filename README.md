@@ -24,7 +24,8 @@ redan tagit sig in, så pluginet kontrollerar också:
   `wp-admin/` och `wp-includes/`.
 - **Plugins från wordpress.org** mot plugin-checksummorna: ändrade och okända `.php`-filer. Premium-plugins och
   teman saknar checksummor och kontrolleras inte.
-- **Körbara filer i uppladdningar** (`.php`, `.phtml`, `.phar` m.fl.). "Silence is golden"-filer utan kod ignoreras.
+- **Körbara filer i uppladdningar** (`.php`, `.phtml`, `.phar` m.fl.). Filer som inte kan köra något ignoreras: bara
+  kommentarer ("Silence is golden"), 404-vakter med `header()` (WPForms) och loggar som börjar med `exit` (MC4WP).
 - **Nya eller ändrade PHP-filer** i `mu-plugins/` och direkt i `wp-content/` (drop-ins), samt **nya
   administratörskonton**, jämfört med förra kontrollen (optionen `kcve_baseline`). Dessa rapporteras en gång.
   Vid den första kontrollen listas allt en gång för granskning, så att en redan infekterad site inte blir normalläget.
